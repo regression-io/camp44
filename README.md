@@ -1,6 +1,6 @@
-# MyBase44
+# Camp44
 
-A FastAPI service to mirror and replace the Base44 cloud API.
+A FastAPI service to provide a Base44 compatible service.  This is an open source community project not affiliated with Base44 or Wix.
 
 ## Overview
 
