@@ -1,0 +1,80 @@
+services:
+  db:
+    image: postgres:15
+    container_name: camp44_db
+    environment:
+      - POSTGRES_USER=camp44
+      - POSTGRES_PASSWORD=camp44
+      - POSTGRES_DB=camp44
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data/
+
+  minio:
+    image: minio/minio:latest
+    container_name: camp44_minio
+    environment:
+      - MINIO_ROOT_USER=minioadmin
+      - MINIO_ROOT_PASSWORD=minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio_data:/data
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: camp44_app
+    depends_on:
+      - db
+      - minio
+      - rabbitmq
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://camp44:camp44@db:5432/camp44
+      - MINIO_URL=minio:9000
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=minioadmin
+      - JWT_SECRET_KEY=your-super-secret-key # CHANGE THIS
+      - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672/%2F
+      - STRIPE_SECRET_KEY=your-stripe-secret-key # CHANGE THIS
+      - STRIPE_WEBHOOK_SECRET=your-stripe-webhook-secret # CHANGE THIS
+      - FIRST_SUPERUSER=admin@example.com
+      - FIRST_SUPERUSER_PASSWORD=password
+    command: ["uvicorn", "camp44.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    volumes:
+      - ./camp44:/app/camp44
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: camp44_rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+
+  metering_worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: camp44_metering_worker
+    depends_on:
+      - rabbitmq
+      - db
+    environment:
+      - DATABASE_URL=postgresql://camp44:camp44@db:5432/camp44
+      - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672/%2F
+      - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY}
+      - MINIO_URL=minio:9000
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=minioadmin
+      - JWT_SECRET_KEY=your-super-secret-key # CHANGE THIS
+    command: ["python", "-u", "-m", "camp44.workers.metering_processor"]
+
+volumes:
+  postgres_data:
+  minio_data:
