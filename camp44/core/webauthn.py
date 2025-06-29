@@ -2,13 +2,11 @@
 WebAuthn/Passkey client and utilities.
 """
 import base64
-import os
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List
 
 from fastapi import HTTPException, status
-import webauthn
-from webauthn import generate_registration_options, verify_registration_response
 from webauthn import generate_authentication_options, verify_authentication_response
+from webauthn import generate_registration_options, verify_registration_response
 from webauthn.helpers import generate_challenge
 from webauthn.helpers.structs import (
     AttestationConveyancePreference,
@@ -27,10 +25,10 @@ from camp44.core.config import settings
 
 
 def generate_passkey_registration_options(
-    user_id: str,
-    user_name: str,
-    user_display_name: str,
-    existing_credentials: List[Dict] = None,
+        user_id: str,
+        user_name: str,
+        user_display_name: str,
+        existing_credentials: List[Dict] = None,
 ) -> PublicKeyCredentialCreationOptions:
     """
     Generate registration options for WebAuthn passkey enrollment.
@@ -59,7 +57,7 @@ def generate_passkey_registration_options(
                     )
                 except Exception:
                     pass
-    
+
     # Create options
     options = generate_registration_options(
         rp_id=settings.WEBAUTHN_RP_ID,
@@ -76,15 +74,15 @@ def generate_passkey_registration_options(
         ),
         attestation=AttestationConveyancePreference.NONE,
     )
-    
+
     return options
 
 
 def verify_passkey_registration(
-    credential: RegistrationCredential, 
-    expected_challenge: bytes,
-    expected_origin: str = None,
-    expected_rp_id: str = None,
+        credential: RegistrationCredential,
+        expected_challenge: bytes,
+        expected_origin: str = None,
+        expected_rp_id: str = None,
 ) -> Dict:
     """
     Verify WebAuthn registration response.
@@ -100,7 +98,7 @@ def verify_passkey_registration(
     """
     origin = expected_origin or settings.WEBAUTHN_ORIGIN
     rp_id = expected_rp_id or settings.WEBAUTHN_RP_ID
-    
+
     try:
         # Verify registration response
         verification = verify_registration_response(
@@ -109,7 +107,7 @@ def verify_passkey_registration(
             expected_origin=origin,
             expected_rp_id=rp_id,
         )
-        
+
         # Create credential info for storage
         credential_info = {
             "id": base64.b64encode(verification.credential_id).decode('utf-8'),
@@ -120,9 +118,9 @@ def verify_passkey_registration(
             "transports": list(credential.response.transports) if credential.response.transports else [],
             "created_at": str(verification.credential_creation_time) if verification.credential_creation_time else None,
         }
-        
+
         return credential_info
-        
+
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -131,8 +129,8 @@ def verify_passkey_registration(
 
 
 def generate_passkey_authentication_options(
-    user_credentials: List[Dict] = None,
-    user_verification: UserVerificationRequirement = UserVerificationRequirement.PREFERRED,
+        user_credentials: List[Dict] = None,
+        user_verification: UserVerificationRequirement = UserVerificationRequirement.PREFERRED,
 ) -> PublicKeyCredentialRequestOptions:
     """
     Generate authentication options for WebAuthn passkey login.
@@ -152,13 +150,13 @@ def generate_passkey_authentication_options(
                 credential_id = base64.b64decode(cred['id'])
                 allow_credentials.append(
                     PublicKeyCredentialDescriptor(
-                        id=credential_id, 
+                        id=credential_id,
                         type="public-key",
                     )
                 )
             except Exception:
                 pass
-    
+
     # Create options
     options = generate_authentication_options(
         rp_id=settings.WEBAUTHN_RP_ID,
@@ -167,17 +165,17 @@ def generate_passkey_authentication_options(
         user_verification=user_verification,
         timeout=settings.WEBAUTHN_TIMEOUT,
     )
-    
+
     return options
 
 
 def verify_passkey_authentication(
-    credential: AuthenticationCredential,
-    expected_challenge: bytes,
-    expected_origin: str,
-    expected_rp_id: str,
-    credential_public_key: bytes,
-    credential_current_sign_count: int,
+        credential: AuthenticationCredential,
+        expected_challenge: bytes,
+        expected_origin: str,
+        expected_rp_id: str,
+        credential_public_key: bytes,
+        credential_current_sign_count: int,
 ) -> int:
     """
     Verify WebAuthn authentication assertion.
@@ -203,9 +201,9 @@ def verify_passkey_authentication(
             credential_public_key=credential_public_key,
             credential_current_sign_count=credential_current_sign_count,
         )
-        
+
         return verification.new_sign_count
-        
+
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

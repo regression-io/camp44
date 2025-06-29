@@ -3,11 +3,10 @@ OAuth/OIDC client and utilities.
 """
 from typing import Dict, Optional
 
+import httpx
 from authlib.integrations.starlette_client import OAuth
 from authlib.jose import JsonWebKey, JsonWebToken, jwt
 from authlib.jose.errors import JoseError
-import httpx
-import json
 
 from camp44.core.config import settings
 
@@ -29,9 +28,9 @@ if settings.OAUTH_ENABLED and settings.OIDC_CLIENT_ID and settings.OIDC_CLIENT_S
 
 class OIDCTokenValidator:
     """Validates OIDC tokens and extracts claims."""
-    
+
     _jwks = None
-    
+
     @classmethod
     async def get_jwks(cls) -> Dict:
         """Fetch and cache JSON Web Key Set from the IdP."""
@@ -40,7 +39,7 @@ class OIDCTokenValidator:
                 response = await client.get(settings.OIDC_JWKS_URI)
                 cls._jwks = response.json()
         return cls._jwks or {}
-    
+
     @classmethod
     async def validate_token(cls, token: str) -> Optional[Dict]:
         """
@@ -54,11 +53,11 @@ class OIDCTokenValidator:
         """
         if not settings.OAUTH_ENABLED:
             return None
-            
+
         try:
             # Get the JSON Web Key Set
             jwks = await cls.get_jwks()
-            
+
             # Parse the token header
             jwt_obj = JsonWebToken(['RS256'])
             claims = jwt_obj.decode(
@@ -71,7 +70,7 @@ class OIDCTokenValidator:
             )
             claims.validate()
             return claims
-            
+
         except (JoseError, ValueError) as e:
             # Invalid token
             print(f"Token validation error: {str(e)}")

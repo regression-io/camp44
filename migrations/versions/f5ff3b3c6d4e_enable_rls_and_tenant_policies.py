@@ -1,5 +1,5 @@
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 
 """enable RLS and tenant isolation policies
 
@@ -20,6 +20,7 @@ tables_with_tenant_column = [
     "entity",
     "meter_event",
 ]
+
 
 def upgrade():
     # Enable RLS and create tenant-isolation policy for each table

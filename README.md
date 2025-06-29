@@ -1,6 +1,6 @@
 # Camp44
 
-A FastAPI service to provide a Base44 compatible service.  This is an open source community project not affiliated with Base44 or Wix.
+A FastAPI service to provide a Base44 compatible service. This is an open source community project not affiliated with Base44 or Wix.
 
 ## Overview
 
@@ -11,7 +11,8 @@ This project provides a self-hostable backend that is API-compatible with the Ba
 - **Authentication**: JWT-based authentication with user registration and login (`/api/v1/auth`).
 - **User Management**: Endpoints for users to manage their own profiles (`/api/v1/users/me`).
 - **App Management**: Create and manage applications (`/api/v1/apps`).
-- **Generic Entity CRUD**: A powerful, schemaless system to create, read, update, and delete any JSON-based data entity under a specific app and entity name (`/api/v1/apps/{app_id}/entities/{entity_name}`).
+- **Generic Entity CRUD**: A powerful, schemaless system to create, read, update, and delete any JSON-based data entity under a specific app and entity name (
+  `/api/v1/apps/{app_id}/entities/{entity_name}`).
 - **Bulk Operations**: Perform multiple CRUD operations in a single atomic request (`/api/v1/apps/{app_id}/bulk`).
 - **File Uploads**: Securely upload files to a MinIO S3-compatible storage, linked to your app (`/api/v1/apps/{app_id}/integrations/Core.UploadFile`).
 - **Extensibility**: Stubs for future integrations and server-side functions.
@@ -51,9 +52,9 @@ This project provides a self-hostable backend that is API-compatible with the Ba
    ```
 
    This will start:
-   - A Postgres database
-   - A MinIO S3-compatible object store
-   - The FastAPI application
+    - A Postgres database
+    - A MinIO S3-compatible object store
+    - The FastAPI application
 
 4. **Run database migrations:**
 

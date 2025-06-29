@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional
+from typing import Optional
 
 from sqlmodel import Session, select
 
@@ -32,7 +32,7 @@ def create_user(session: Session, *, user_in: UserCreate) -> User:
 
 
 def authenticate(
-    session: Session, *, email: str, password: str
+        session: Session, *, email: str, password: str
 ) -> Optional[User]:
     """Authenticate a user."""
     db_user = get_user_by_email(session=session, email=email)
@@ -44,7 +44,7 @@ def authenticate(
 
 
 def update_user(
-    session: Session, *, db_user: User, user_in: UserUpdate
+        session: Session, *, db_user: User, user_in: UserUpdate
 ) -> User:
     """Update a user."""
     user_data = user_in.model_dump(exclude_unset=True)

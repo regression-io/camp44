@@ -4,121 +4,124 @@ OIDC authentication router.
 from typing import Dict
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from fastapi.responses import RedirectResponse
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi.responses import JSONResponse, RedirectResponse
+from sqlalchemy.orm import Session
 
-from camp44.api import deps_async
+from camp44.api import deps
 from camp44.core.config import settings
 from camp44.core.oauth import oauth
 from camp44.core.security import create_access_token
-from camp44.crud import user_async as user_crud
+from camp44.crud import user as user_crud
 
 router = APIRouter()
 
 
 @router.get("/login")
-async def oidc_login(request: Request):
+def oidc_login(request: Request):
     """
     Initiate OIDC login flow.
     """
     if not settings.OAUTH_ENABLED:
-        raise HTTPException(
+        return JSONResponse(
             status_code=status.HTTP_501_NOT_IMPLEMENTED,
-            detail="OIDC authentication not configured"
+            content={"detail": "OIDC authentication not configured"}
         )
 
     # Redirect to OIDC provider's authorization endpoint
     redirect_uri = request.url_for('oidc_callback')
-    return await oauth.oidc.authorize_redirect(request, redirect_uri)
+    # Note: authorize_redirect returns a Response, not a coroutine
+    response = oauth.oidc.authorize_redirect(request, redirect_uri)
+    return RedirectResponse(
+        url=response.headers.get("Location"),
+        status_code=status.HTTP_302_FOUND
+    )
 
 
 @router.get("/callback")
-async def oidc_callback(
-    request: Request,
-    db: AsyncSession = Depends(deps_async.get_db)
+def oidc_callback(
+        request: Request,
+        db: Session = Depends(deps.get_db)
 ):
     """
     Handle OIDC callback after user authentication.
     """
     if not settings.OAUTH_ENABLED:
-        raise HTTPException(
+        return JSONResponse(
             status_code=status.HTTP_501_NOT_IMPLEMENTED,
-            detail="OIDC authentication not configured"
+            content={"detail": "OIDC authentication not configured"}
         )
 
     try:
         # Get token and user info from OIDC provider
-        token = await oauth.oidc.authorize_access_token(request)
+        # Note: authorize_access_token returns a dict, not a coroutine
+        token = oauth.oidc.authorize_access_token(request)
         user_info = token.get('userinfo')
-        
+
         if not user_info:
             # If userinfo not included in token, fetch it using userinfo endpoint
-            user_info = await oauth.oidc.parse_id_token(request, token)
-        
-        # Extract user data from OIDC claims
+            # Note: parse_id_token returns a dict, not a coroutine
+            user_info = oauth.oidc.parse_id_token(request, token)
+
+        # Extract key fields
         oidc_sub = user_info.get('sub')
         email = user_info.get('email')
-        email_verified = user_info.get('email_verified', False)
-        name = user_info.get('name') or user_info.get('preferred_username')
-        tenant_id = user_info.get(settings.OIDC_TENANT_CLAIM)
-        
+        name = user_info.get('name') or email
+        tenant_id = user_info.get('tenant_id', 'default')
+
+        # Find or create user - use sync methods
+        user = user_crud.get_by_oidc_sub(db, oidc_sub=oidc_sub)
+
         if not oidc_sub or not email:
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST, 
+                status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Invalid user info from identity provider"
             )
-        
-        # Find or create user by OIDC sub
-        user = await user_crud.get_by_oidc_sub(db, oidc_sub=oidc_sub)
-        
+
         if not user:
-            # Check if user exists with same email
-            existing_user = await user_crud.get_by_email(db, email=email)
-            
-            if existing_user:
+            # Check if user exists with email - use sync methods
+            user = user_crud.get_by_email(db, email=email)
+
+            if user:
                 # Link OIDC to existing user
-                user = existing_user
                 user.oidc_sub = oidc_sub
                 user.oidc_issuer = settings.OIDC_ISSUER_URL
-                user.oidc_email_verified = email_verified
-                user.tenant_id = tenant_id
             else:
-                # Create new user
-                user = await user_crud.create_oidc_user(
+                # Create new user with OIDC information - use sync methods
+                user = user_crud.create_oidc_user(
                     db,
                     email=email,
-                    display_name=name,
+                    full_name=name,
                     oidc_sub=oidc_sub,
-                    oidc_issuer=settings.OIDC_ISSUER_URL,
-                    oidc_email_verified=email_verified,
                     tenant_id=tenant_id,
-                    roles=["user"],
                 )
-        
-        # Create JWT access token
+
+        # Generate access token - the create_access_token function should be sync
         access_token = create_access_token(
-            data={"sub": str(user.id)},
+            data={"sub": str(user.id)}
         )
-        
+
         # Set up redirect URL with token - typically to frontend
         redirect_url = f"/auth-callback?token={access_token}"
-        
-        return RedirectResponse(redirect_url)
-    
+
+        return RedirectResponse(
+            url=redirect_url,
+            status_code=status.HTTP_307_TEMPORARY_REDIRECT
+        )
+
     except Exception as e:
         # Log the error
         print(f"OIDC Callback error: {str(e)}")
-        raise HTTPException(
+        return JSONResponse(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Failed to authenticate: {str(e)}"
+            content={"detail": f"Failed to authenticate: {str(e)}"}
         )
 
 
 @router.get("/userinfo")
-async def oidc_userinfo(
-    request: Request,
-    db: AsyncSession = Depends(deps_async.get_db),
-    current_user = Depends(deps_async.get_current_active_user)
+def oidc_userinfo(
+        request: Request,
+        db: Session = Depends(deps.get_db),
+        current_user=Depends(deps.get_current_active_user)
 ) -> Dict:
     """
     Get user info for authenticated user.

@@ -56,8 +56,8 @@ class User(SQLModel, table=True):
     oidc_issuer: Optional[str] = Field(default=None)  # Issuer URL
     oidc_email_verified: bool = Field(default=False)  # Email verified by IdP
     tenant_id: Optional[str] = Field(default=None, index=True)  # Tenant ID from OIDC claims
-    
+
     # WebAuthn/Passkey credentials - JSON array of registered credentials
-    passkey_credentials: List[Dict] = Field(default=[], sa_column=Column(JSON))  
-    
+    passkey_credentials: List[Dict] = Field(default=[], sa_column=Column(JSON))
+
     apps: List["App"] = Relationship(back_populates="owner", sa_relationship_kwargs={"cascade": "all, delete-orphan"})

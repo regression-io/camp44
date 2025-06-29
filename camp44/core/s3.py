@@ -4,6 +4,7 @@ from camp44.core.config import settings
 
 _minio_client = None
 
+
 def get_minio_client():
     """Get a Minio client instance, creating it if it doesn't exist."""
     global _minio_client

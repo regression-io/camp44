@@ -40,11 +40,11 @@ OIDC_CALLBACK_URL=http://localhost:8000/api/v1/auth/oidc/callback
 2. Configure your identity provider to use your callback URL.
 
 3. Implement the OIDC auth flow:
-   - Redirect user to `/api/v1/auth/oidc/login` to initiate the flow
-   - User authenticates with the provider
-   - Provider redirects to your callback URL with an authorization code
-   - The callback endpoint exchanges this code for tokens and creates/authenticates the user
-   - User receives a JWT token for subsequent requests
+    - Redirect user to `/api/v1/auth/oidc/login` to initiate the flow
+    - User authenticates with the provider
+    - Provider redirects to your callback URL with an authorization code
+    - The callback endpoint exchanges this code for tokens and creates/authenticates the user
+    - User receives a JWT token for subsequent requests
 
 ### Tenant ID Extraction
 
@@ -77,50 +77,50 @@ Example client-side JavaScript for registration:
 ```javascript
 // 1. Get registration options
 const optionsResponse = await fetch('/api/v1/auth/passkey/register/options', {
-  method: 'POST',
-  headers: {
-    'Content-Type': 'application/json',
-    'Authorization': 'Bearer YOUR_JWT_TOKEN'
-  },
-  body: JSON.stringify({ user_id: 'user-uuid' })
+    method: 'POST',
+    headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer YOUR_JWT_TOKEN'
+    },
+    body: JSON.stringify({user_id: 'user-uuid'})
 });
 const optionsData = await optionsResponse.json();
 
 // 2. Create credential with WebAuthn API
 const credential = await navigator.credentials.create({
-  publicKey: {
-    ...optionsData.options,
-    challenge: base64URLToBuffer(optionsData.options.challenge),
-    user: {
-      ...optionsData.options.user,
-      id: base64URLToBuffer(optionsData.options.user.id),
-    },
-    excludeCredentials: optionsData.options.excludeCredentials.map(cred => ({
-      ...cred,
-      id: base64URLToBuffer(cred.id),
-    })),
-  }
+    publicKey: {
+        ...optionsData.options,
+        challenge: base64URLToBuffer(optionsData.options.challenge),
+        user: {
+            ...optionsData.options.user,
+            id: base64URLToBuffer(optionsData.options.user.id),
+        },
+        excludeCredentials: optionsData.options.excludeCredentials.map(cred => ({
+            ...cred,
+            id: base64URLToBuffer(cred.id),
+        })),
+    }
 });
 
 // 3. Verify credential with server
 const verifyResponse = await fetch('/api/v1/auth/passkey/register/verify', {
-  method: 'POST',
-  headers: {
-    'Content-Type': 'application/json',
-    'Authorization': 'Bearer YOUR_JWT_TOKEN'
-  },
-  body: JSON.stringify({
-    user_id: 'user-uuid',
-    credential: {
-      id: credential.id,
-      rawId: bufferToBase64URL(credential.rawId),
-      response: {
-        attestationObject: bufferToBase64URL(credential.response.attestationObject),
-        clientDataJSON: bufferToBase64URL(credential.response.clientDataJSON),
-      },
-      type: credential.type,
-    }
-  })
+    method: 'POST',
+    headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer YOUR_JWT_TOKEN'
+    },
+    body: JSON.stringify({
+        user_id: 'user-uuid',
+        credential: {
+            id: credential.id,
+            rawId: bufferToBase64URL(credential.rawId),
+            response: {
+                attestationObject: bufferToBase64URL(credential.response.attestationObject),
+                clientDataJSON: bufferToBase64URL(credential.response.clientDataJSON),
+            },
+            type: credential.type,
+        }
+    })
 });
 ```
 

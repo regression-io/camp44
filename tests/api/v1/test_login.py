@@ -1,7 +1,7 @@
 from fastapi.testclient import TestClient
 from sqlmodel import Session
 
-from camp44.models import User
+from camp44.models.user import User
 
 
 def test_login(client: TestClient, test_user: User):

@@ -46,7 +46,7 @@ services:
       - STRIPE_WEBHOOK_SECRET=your-stripe-webhook-secret # CHANGE THIS
       - FIRST_SUPERUSER=admin@example.com
       - FIRST_SUPERUSER_PASSWORD=password
-    command: ["uvicorn", "camp44.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    command: [ "uvicorn", "camp44.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload" ]
     volumes:
       - ./camp44:/app/camp44
 
@@ -73,7 +73,7 @@ services:
       - MINIO_ACCESS_KEY=minioadmin
       - MINIO_SECRET_KEY=minioadmin
       - JWT_SECRET_KEY=your-super-secret-key # CHANGE THIS
-    command: ["python", "-u", "-m", "camp44.workers.metering_processor"]
+    command: [ "python", "-u", "-m", "camp44.workers.metering_processor" ]
 
 volumes:
   postgres_data:

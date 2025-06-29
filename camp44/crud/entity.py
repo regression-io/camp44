@@ -21,7 +21,7 @@ def get_entity(session: Session, id: str) -> Optional[Entity]:
 
 
 def get_multi_by_app_and_name(
-    session: Session, *, app: App, name: str, skip: int = 0, limit: int = 100
+        session: Session, *, app: App, name: str, skip: int = 0, limit: int = 100
 ) -> List[Entity]:
     """Get multiple entities by app and name."""
     statement = (
@@ -34,22 +34,39 @@ def get_multi_by_app_and_name(
 
 
 def filter_entities(
-    session: Session, *, app: App, name: str, filters: Dict[str, Any], skip: int = 0, limit: int = 100
+        session: Session, *, app: App, name: str, filters: Dict[str, Any], skip: int = 0, limit: int = 100
 ) -> List[Entity]:
     """Filter entities by app, name, and data filters."""
+    from sqlalchemy import text
+    
+    # Start with base query
     statement = (
         select(Entity)
         .where(Entity.app_id == app.id, Entity.name == name)
     )
+    
+    # Apply JSON path filters using SQLAlchemy's text() for PostgreSQL
     for key, value in filters.items():
-        statement = statement.where(Entity.data[key].astext == str(value))
+        if isinstance(value, str):
+            # For string values, use -> operator and cast the result to text
+            statement = statement.where(
+                text(f"data->>'{key}' = :value").bindparams(value=value)
+            )
+        elif isinstance(value, (int, float, bool)):
+            # For numeric/boolean values, handle appropriately
+            statement = statement.where(
+                text(f"(data->>'{key}')::text = :value").bindparams(value=str(value))
+            )
+        else:
+            # Skip complex objects
+            continue
 
     statement = statement.offset(skip).limit(limit)
     return session.exec(statement).all()
 
 
 def update_entity(
-    session: Session, *, db_obj: Entity, obj_in: EntityUpdate
+        session: Session, *, db_obj: Entity, obj_in: EntityUpdate
 ) -> Entity:
     """Update an entity."""
     update_data = obj_in.model_dump(exclude_unset=True)

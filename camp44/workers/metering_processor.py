@@ -1,12 +1,15 @@
 import json
-import pika
 import time
+
+import pika
 import stripe
+
 from camp44.core.config import settings
 
 # Initialize stripe if the key is provided, but don't require it
 if settings.STRIPE_SECRET_KEY:
     stripe.api_key = settings.STRIPE_SECRET_KEY
+
 
 def process_event(event_data: dict):
     """Process a single metering event."""
@@ -17,6 +20,7 @@ def process_event(event_data: dict):
     # 3. Report usage to Stripe against the correct subscription item.
     #    stripe.SubscriptionItem.create_usage_record(...)
     time.sleep(0.1)  # Simulate work
+
 
 def main():
     """Main worker loop to process events from RabbitMQ."""
@@ -53,6 +57,7 @@ def main():
     except KeyboardInterrupt:
         print("Interrupted")
         connection.close()
+
 
 if __name__ == "__main__":
     print("Starting metering processor...")

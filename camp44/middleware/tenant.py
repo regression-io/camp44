@@ -8,12 +8,11 @@ This first cut reuses the existing JWT validation logic from `api.deps`. In a
 future slice we will swap to full OIDC / Passkeys flows.
 """
 
-from typing import Callable, Dict, Any
+from typing import Callable, Any
 
 from fastapi import Request
 from jose import jwt, JWTError
 from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.types import ASGIApp, Receive, Scope, Send
 
 from camp44.core.config import settings
 

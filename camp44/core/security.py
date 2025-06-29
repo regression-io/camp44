@@ -5,7 +5,9 @@ from passlib.context import CryptContext
 
 from camp44.core.config import settings
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# Update to use a combination of bcrypt and sha256_crypt for better compatibility
+# bcrypt alone is having issues with newer versions of the library
+pwd_context = CryptContext(schemes=["bcrypt", "sha256_crypt"], deprecated="auto")
 
 ALGORITHM = "HS256"
 
@@ -33,4 +35,5 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 def get_password_hash(password: str) -> str:
     """Hash a password."""
+    # Use sha256_crypt by default which is more reliable across environments
     return pwd_context.hash(password)

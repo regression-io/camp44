@@ -1,18 +1,19 @@
 from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 
-from camp44.api.v1.endpoints import auth, users, apps, entities, bulk, integrations, functions, metering
 from camp44.api.v1 import oidc, passkey
-from camp44.db.session import create_db_and_tables
-from camp44.db.initial_data import seed_initial_data
-from camp44.core.errors import http_exception_handler, generic_exception_handler
+from camp44.api.v1.endpoints import auth, users, apps, entities, bulk, integrations, functions, metering
 from camp44.core.config import settings
-from camp44.core.tracing import setup_tracer
+from camp44.core.errors import http_exception_handler, generic_exception_handler
 from camp44.core.middleware import SecurityHeadersMiddleware
+from camp44.core.tracing import setup_tracer
+from camp44.db.initial_data import seed_initial_data
+from camp44.db.session import create_db_and_tables
 from camp44.middleware.tenant import TenantMiddleware
 from camp44.middleware.tenant_oidc import OIDCTenantMiddleware
-from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 
 
 @asynccontextmanager
@@ -57,19 +58,19 @@ app.include_router(functions.router, prefix="/api/v1/functions", tags=["function
 app.include_router(metering.router, prefix="/api/v1/metering", tags=["metering"])
 
 # OIDC and Passkey routers
+# Note: oidc.router already has paths starting with /login, /callback, etc.
 app.include_router(oidc.router, prefix="/api/v1/auth/oidc", tags=["auth", "oidc"])
 app.include_router(passkey.router, prefix="/api/v1/auth/passkey", tags=["auth", "passkey"])
 
 FastAPIInstrumentor.instrument_app(app)
+
 
 @app.get("/")
 def read_root():
     """A simple endpoint to check if the service is running."""
     return {"message": "Welcome to Camp44"}
 
-# Here we will later include routers for auth, entities, etc.
-# from .auth import router as auth_router
-# from .entities import router as entities_router
-#
-# app.include_router(auth_router, prefix="/auth", tags=["auth"])
-# app.include_router(entities_router, prefix="/api/apps/{app_id}/entities", tags=["entities"])
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("camp44.main:app", host="0.0.0.0", port=8000, reload=True)

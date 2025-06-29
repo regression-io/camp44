@@ -1,4 +1,3 @@
-from collections.abc import Generator
 import uuid
 from typing import Generator
 
@@ -11,8 +10,8 @@ from sqlmodel import Session
 from camp44 import crud
 from camp44.core.config import settings
 from camp44.db.session import engine
-from camp44.models.token import TokenPayload
 from camp44.models.app import App
+from camp44.models.token import TokenPayload
 from camp44.models.user import User
 
 reusable_oauth2 = OAuth2PasswordBearer(
@@ -27,7 +26,7 @@ def get_db() -> Generator[Session, None, None]:
 
 
 def get_current_user(
-    db: Session = Depends(get_db), token: str = Depends(reusable_oauth2)
+        db: Session = Depends(get_db), token: str = Depends(reusable_oauth2)
 ) -> User:
     """Get the current user from a token."""
     try:
@@ -47,7 +46,7 @@ def get_current_user(
 
 
 def get_current_active_user(
-    current_user: User = Depends(get_current_user),
+        current_user: User = Depends(get_current_user),
 ) -> User:
     if not current_user.is_active:
         raise HTTPException(status_code=400, detail="Inactive user")
@@ -55,9 +54,9 @@ def get_current_active_user(
 
 
 def get_app_by_id_from_path(
-    app_id: str,
-    session: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+        app_id: str,
+        session: Session = Depends(get_db),
+        current_user: User = Depends(get_current_active_user),
 ) -> App:
     """Get an app by its ID from the path and verify the current user has access."""
     app = crud.app.get_app(session, id=app_id)
