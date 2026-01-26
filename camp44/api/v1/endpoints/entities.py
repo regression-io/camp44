@@ -1,4 +1,5 @@
 import logging
+import uuid
 from typing import Any, Dict, List
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -106,7 +107,7 @@ def read_entity(
         request: Request,
         db: Session = Depends(deps.get_db),
         app: App = Depends(deps.get_app_by_id_from_path),
-        id: str,
+        id: uuid.UUID,
         entity_name: str,
 ) -> Entity:
     """Retrieve an entity."""
@@ -142,7 +143,7 @@ def update_entity(
         request: Request,
         db: Session = Depends(deps.get_db),
         app: App = Depends(deps.get_app_by_id_from_path),
-        id: str,
+        id: uuid.UUID,
         entity_name: str,
         entity_in: EntityUpdate,
 ) -> Entity:
@@ -167,7 +168,7 @@ def delete_entity(
         request: Request,
         db: Session = Depends(deps.get_db),
         app: App = Depends(deps.get_app_by_id_from_path),
-        id: str,
+        id: uuid.UUID,
         entity_name: str,
 ) -> Any:
     """Delete an entity."""

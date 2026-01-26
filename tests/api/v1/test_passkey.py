@@ -77,7 +77,7 @@ def test_passkey_register_options(mock_generate_options, auth_headers, mock_user
 
     # Make request
     response = client.post(
-        "/api/auth/passkey/register/options",
+        "/auth/passkey/register/options",
         json={"user_id": str(mock_user.id)},
         headers=auth_headers
     )
@@ -116,7 +116,7 @@ def test_passkey_register_verify(mock_update, mock_verify, auth_headers, mock_db
     with patch.dict("camp44.api.v1.passkey._CHALLENGES", {user_id: "fake_challenge"}):
         # Make request
         response = client.post(
-            "/api/auth/passkey/register/verify",
+            "/auth/passkey/register/verify",
             json={"user_id": user_id, "credential": fake_credential},
             headers=auth_headers
         )
@@ -153,7 +153,7 @@ def test_passkey_authenticate_options(mock_get_by_email, mock_generate_options):
 
     # Make request
     response = client.post(
-        "/api/auth/passkey/authenticate/options",
+        "/auth/passkey/authenticate/options",
         json={"email": "testuser@example.com"}
     )
 
@@ -201,7 +201,7 @@ def test_passkey_authenticate_verify(mock_create_token, mock_get_by_email, mock_
     with patch.dict("camp44.api.v1.passkey._CHALLENGES", {str(mock_user.id): "fake_challenge"}):
         # Make request
         response = client.post(
-            "/api/auth/passkey/authenticate/verify",
+            "/auth/passkey/authenticate/verify",
             json={"credential": fake_credential, "email": "testuser@example.com", "credential_id": "credential123"}
         )
 

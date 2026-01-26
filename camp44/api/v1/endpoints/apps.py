@@ -1,3 +1,4 @@
+import uuid
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -36,7 +37,7 @@ def read_apps(
 
 @router.get("/{id}", response_model=AppRead)
 def read_app(
-        *, db: Session = Depends(deps.get_db), id: str, current_user: User = Depends(deps.get_current_active_user)
+        *, db: Session = Depends(deps.get_db), id: uuid.UUID, current_user: User = Depends(deps.get_current_active_user)
 ) -> App:
     """Get app by ID."""
     app = crud.app.get_app(session=db, id=id)

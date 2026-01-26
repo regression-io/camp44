@@ -39,7 +39,7 @@ def test_oidc_login_disabled():
     original_value = settings.OAUTH_ENABLED
     settings.OAUTH_ENABLED = False
     try:
-        response = client.get("/api/auth/oidc/login")
+        response = client.get("/auth/oidc/login")
         assert response.status_code == 501
         assert "OIDC authentication not configured" in response.json()["detail"]
     finally:
@@ -52,7 +52,7 @@ def test_oidc_callback_disabled():
     original_value = settings.OAUTH_ENABLED
     settings.OAUTH_ENABLED = False
     try:
-        response = client.get("/api/auth/oidc/callback")
+        response = client.get("/auth/oidc/callback")
         assert response.status_code == 501
         assert "OIDC authentication not configured" in response.json()["detail"]
     finally:
@@ -69,7 +69,7 @@ def test_oidc_login_redirect():
         return RedirectResponse(url=redirect_url, status_code=status.HTTP_302_FOUND)
     
     with patch("camp44.api.v1.oidc.oidc_login", side_effect=mock_oidc_login):
-        response = client.get("/api/auth/oidc/login")
+        response = client.get("/auth/oidc/login")
         
     assert response.status_code == 302
     assert response.headers.get("location") == redirect_url
@@ -127,7 +127,7 @@ def test_oidc_callback_new_user(mock_create_token, mock_user_crud, mock_oauth):
             
         # Apply the mock
         with patch("camp44.api.v1.oidc.oidc_callback", side_effect=mock_oidc_callback):
-            response = client.get("/api/auth/oidc/callback")
+            response = client.get("/auth/oidc/callback")
         
         # Assert the results
         assert response.status_code == 307
@@ -186,7 +186,7 @@ def test_oidc_callback_existing_user(mock_create_token, mock_user_crud, mock_oau
             
         # Apply the mock
         with patch("camp44.api.v1.oidc.oidc_callback", side_effect=mock_oidc_callback):
-            response = client.get("/api/auth/oidc/callback")
+            response = client.get("/auth/oidc/callback")
         
         # Assert the results
         assert response.status_code == 307

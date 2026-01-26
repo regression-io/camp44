@@ -25,7 +25,11 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 - **Test paths** - Fixed all test files to use correct API routes (`/api/` instead of `/api/v1/`)
-  - `tests/conftest.py`, `test_apps.py`, `test_entities.py`, `test_login.py`, `test_oidc.py`, `test_passkey.py`, `test_metering.py`
+  - `tests/conftest.py`, `test_apps.py`, `test_entities.py`, `test_login.py`, `test_metering.py`
+  - OIDC and passkey tests now use `/auth/oidc/` and `/auth/passkey/` (no `/api` prefix)
+- **UUID type hints** - Fixed path parameters to use `uuid.UUID` instead of `str` in:
+  - `apps.py` - `read_app()` endpoint
+  - `entities.py` - `read_entity()`, `update_entity()`, `delete_entity()` endpoints
 - **CI workflow** - Made tests blocking again now that paths are correct
 
 ### Changed
