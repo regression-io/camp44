@@ -1,4 +1,5 @@
-from typing import Any, Dict, List, Optional
+import uuid
+from typing import Any, Dict, List, Optional, Union
 
 from sqlmodel import Session, select
 
@@ -15,8 +16,10 @@ def create_entity(*, session: Session, entity_in: EntityCreate, app: App) -> Ent
     return db_obj
 
 
-def get_entity(session: Session, id: str) -> Optional[Entity]:
+def get_entity(session: Session, id: Union[uuid.UUID, str]) -> Optional[Entity]:
     """Get an entity by id."""
+    if isinstance(id, str):
+        id = uuid.UUID(id)
     return session.get(Entity, id)
 
 

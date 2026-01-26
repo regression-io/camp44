@@ -1,4 +1,5 @@
-from typing import List, Optional
+import uuid
+from typing import List, Optional, Union
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import Session, select
@@ -16,8 +17,10 @@ def create_app(*, session: Session, app_in: AppCreate, owner: User) -> App:
     return db_obj
 
 
-def get_app(session: Session, id: str) -> Optional[App]:
+def get_app(session: Session, id: Union[uuid.UUID, str]) -> Optional[App]:
     """Get an app by id."""
+    if isinstance(id, str):
+        id = uuid.UUID(id)
     return session.get(App, id)
 
 
@@ -43,8 +46,10 @@ async def create_app_async(*, session: AsyncSession, app_in: AppCreate, owner: U
     return db_obj
 
 
-async def get_app_async(session: AsyncSession, id: str) -> Optional[App]:
+async def get_app_async(session: AsyncSession, id: Union[uuid.UUID, str]) -> Optional[App]:
     """Get an app by id asynchronously."""
+    if isinstance(id, str):
+        id = uuid.UUID(id)
     return await session.get(App, id)
 
 

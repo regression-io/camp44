@@ -54,7 +54,7 @@ def get_current_active_user(
 
 
 def get_app_by_id_from_path(
-        app_id: str,
+        app_id: uuid.UUID,
         session: Session = Depends(get_db),
         current_user: User = Depends(get_current_active_user),
 ) -> App:
