@@ -3,11 +3,15 @@
 Proxies requests to Base44's Core integrations (InvokeLLM, SendEmail, etc.)
 using the service API key, so users authenticate to camp44 and never see
 the Base44 credentials.
+
+Also supports auth proxy mode (BASE44_AUTH_PROXY=true) where auth is proxied
+to Base44 for users who want to use Base44 accounts with self-hosted infrastructure.
 """
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import RedirectResponse, HTMLResponse
 
 from camp44.api import deps
 from camp44.core.config import settings
@@ -145,3 +149,152 @@ async def extract_data_from_file(
     Accepts: file_url, extraction_schema, etc.
     """
     return await _proxy_to_base44("ExtractDataFromUploadedFile", request)
+
+
+# =============================================================================
+# Auth Proxy Endpoints (when BASE44_AUTH_PROXY=true)
+# =============================================================================
+
+@router.get("/auth/login")
+async def auth_proxy_login(
+    request: Request,
+    from_url: Optional[str] = None,
+    app_id: Optional[str] = None,
+):
+    """
+    Redirect to Base44 login page when BASE44_AUTH_PROXY is enabled.
+    Otherwise returns 404 (use /auth/login for local auth).
+    """
+    if not settings.BASE44_AUTH_PROXY:
+        raise HTTPException(
+            status_code=404,
+            detail="Base44 auth proxy not enabled. Use /auth/login for local auth."
+        )
+
+    _check_base44_config()
+
+    # Build Base44 login URL with redirect back to camp44
+    from_url = from_url or str(request.query_params.get("from_url", ""))
+    app_id = app_id or settings.BASE44_APP_ID
+
+    base44_login_url = f"{settings.BASE44_API_URL.replace('/api', '')}/login"
+    params = []
+    if from_url:
+        params.append(f"from_url={from_url}")
+    if app_id:
+        params.append(f"app_id={app_id}")
+
+    if params:
+        base44_login_url += "?" + "&".join(params)
+
+    return RedirectResponse(url=base44_login_url, status_code=302)
+
+
+@router.get("/auth/me")
+async def auth_proxy_me(
+    request: Request,
+) -> Any:
+    """
+    Proxy /users/me to Base44 when BASE44_AUTH_PROXY is enabled.
+    Uses the token from Authorization header.
+    """
+    if not settings.BASE44_AUTH_PROXY:
+        raise HTTPException(
+            status_code=404,
+            detail="Base44 auth proxy not enabled. Use /users/me for local auth."
+        )
+
+    _check_base44_config()
+
+    # Get token from Authorization header
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header:
+        raise HTTPException(
+            status_code=401,
+            detail="Authorization header required"
+        )
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        try:
+            response = await client.get(
+                f"{settings.BASE44_API_URL}/users/me",
+                headers={
+                    "Authorization": auth_header,
+                    "X-App-Id": settings.BASE44_APP_ID or "",
+                },
+            )
+
+            if response.status_code != 200:
+                raise HTTPException(
+                    status_code=response.status_code,
+                    detail=f"Base44 auth error: {response.text}"
+                )
+
+            return response.json()
+
+        except httpx.TimeoutException:
+            raise HTTPException(
+                status_code=504,
+                detail="Base44 auth request timed out"
+            )
+        except httpx.RequestError as e:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Failed to reach Base44: {str(e)}"
+            )
+
+
+@router.patch("/auth/me")
+async def auth_proxy_update_me(
+    request: Request,
+    body: Dict[str, Any],
+) -> Any:
+    """
+    Proxy PATCH /users/me to Base44 when BASE44_AUTH_PROXY is enabled.
+    Used for updating user profile (e.g., onboarding_complete).
+    """
+    if not settings.BASE44_AUTH_PROXY:
+        raise HTTPException(
+            status_code=404,
+            detail="Base44 auth proxy not enabled. Use /users/me for local auth."
+        )
+
+    _check_base44_config()
+
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header:
+        raise HTTPException(
+            status_code=401,
+            detail="Authorization header required"
+        )
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        try:
+            response = await client.patch(
+                f"{settings.BASE44_API_URL}/users/me",
+                headers={
+                    "Authorization": auth_header,
+                    "X-App-Id": settings.BASE44_APP_ID or "",
+                    "Content-Type": "application/json",
+                },
+                json=body,
+            )
+
+            if response.status_code != 200:
+                raise HTTPException(
+                    status_code=response.status_code,
+                    detail=f"Base44 update error: {response.text}"
+                )
+
+            return response.json()
+
+        except httpx.TimeoutException:
+            raise HTTPException(
+                status_code=504,
+                detail="Base44 request timed out"
+            )
+        except httpx.RequestError as e:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Failed to reach Base44: {str(e)}"
+            )
