@@ -18,6 +18,9 @@ This project provides a self-hostable backend that is API-compatible with the Ba
 - **Extensibility**: Stubs for future integrations and server-side functions.
 - **Observability**: OpenTelemetry integration for request tracing.
 - **Security**: Middleware for security headers and CORS.
+- **Admin API**: Comprehensive admin endpoints for user and entity management (`/api/admin`).
+- **Base44 Integration Proxy**: Proxy LLM, email, SMS, and image generation requests to Base44 (`/api/base44`).
+- **Base44 Auth Proxy**: Optional mode to proxy authentication to Base44 for hybrid deployments.
 
 ## Getting Started
 
@@ -75,6 +78,49 @@ The API will be available at `http://localhost:5050`.
 Once the application is running, you can access the interactive API documentation (Swagger UI) at [http://localhost:5050/docs](http://localhost:5050/docs).
 
 This interface allows you to explore and test all the API endpoints directly from your browser.
+
+## Admin API
+
+The admin API (`/api/admin/*`) requires `is_superuser` privilege and provides:
+
+### Dashboard
+- `GET /api/admin/stats` - System statistics (users, apps, entities)
+
+### User Management
+- `GET /api/admin/users` - List all users
+- `GET /api/admin/users/{id}` - Get user details
+- `PATCH /api/admin/users/{id}` - Update user
+- `POST /api/admin/users/{id}/activate` - Activate user
+- `POST /api/admin/users/{id}/deactivate` - Deactivate user
+- `POST /api/admin/users/{id}/make-admin` - Grant admin privileges
+- `POST /api/admin/users/{id}/remove-admin` - Revoke admin privileges
+- `DELETE /api/admin/users/{id}` - Delete user
+
+### App Management
+- `GET /api/admin/apps` - List all apps
+
+### Entity Management
+- `GET /api/admin/entities` - List entity types with counts
+- `GET /api/admin/entities/{app_id}/{entity_type}` - List entities by type
+- `DELETE /api/admin/entities/{id}` - Delete entity
+
+## Base44 Integration Proxy
+
+The integration proxy (`/api/base44/*`) allows authenticated users to access Base44 services without exposing credentials:
+
+- `POST /api/base44/invoke` - Proxy LLM requests to Base44's InvokeLLM
+- `POST /api/base44/send-email` - Proxy email requests
+- `POST /api/base44/send-sms` - Proxy SMS requests
+- `POST /api/base44/generate-image` - Proxy image generation
+- `POST /api/base44/extract-data` - Proxy file data extraction
+
+### Base44 Auth Proxy Mode
+
+Set `BASE44_AUTH_PROXY=true` to enable authentication passthrough to Base44:
+
+- `GET /api/base44/auth/login` - Redirect to Base44 login
+- `GET /api/base44/auth/me` - Proxy user info from Base44
+- `PATCH /api/base44/auth/me` - Proxy profile updates to Base44
 
 ## Running Tests
 
