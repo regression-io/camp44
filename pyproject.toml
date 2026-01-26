@@ -13,6 +13,7 @@ dependencies = [
     "pydantic>=2.7.1",
     "python-jose[cryptography]>=3.3.0",
     "passlib[bcrypt]>=1.7.4",
+    "bcrypt>=4.0.1,<4.1.0",  # Pin to avoid passlib compatibility issue with newer bcrypt
     "python-multipart>=0.0.9",
     "minio>=7.2.5",
     "opentelemetry-api>=1.24.0",
