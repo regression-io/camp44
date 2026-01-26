@@ -30,6 +30,8 @@ All notable changes to this project will be documented in this file.
 - **UUID type hints** - Fixed path parameters to use `uuid.UUID` instead of `str` in:
   - `apps.py` - `read_app()` endpoint
   - `entities.py` - `read_entity()`, `update_entity()`, `delete_entity()` endpoints
+  - `deps.py` - `get_app_by_id_from_path()` dependency
+  - CRUD layer (`app.py`, `entity.py`) - Now handles both UUID and string IDs
 - **CI workflow** - Made tests blocking again now that paths are correct
 
 ### Changed
