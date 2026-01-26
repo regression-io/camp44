@@ -6,7 +6,7 @@ from fastapi.responses import RedirectResponse
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 
 from camp44.api.v1 import oidc, passkey
-from camp44.api.v1.endpoints import auth, users, apps, entities, bulk, integrations, functions, metering, base44_proxy
+from camp44.api.v1.endpoints import auth, users, apps, entities, bulk, integrations, functions, metering, base44_proxy, admin
 from camp44.core.config import settings
 from camp44.core.errors import http_exception_handler, generic_exception_handler
 from camp44.core.middleware import SecurityHeadersMiddleware
@@ -61,6 +61,7 @@ app.include_router(integrations.router, prefix="/apps/{app_id}/integrations", ta
 app.include_router(functions.router, prefix="/functions", tags=["functions"])
 app.include_router(metering.router, prefix="/metering", tags=["metering"])
 app.include_router(base44_proxy.router, prefix="/base44", tags=["base44-proxy"])
+app.include_router(admin.router, prefix="/admin", tags=["admin"])
 
 # OIDC and Passkey routers
 # Note: oidc.router already has paths starting with /login, /callback, etc.
@@ -77,6 +78,7 @@ app.include_router(integrations.router, prefix="/api/apps/{app_id}/integrations"
 app.include_router(functions.router, prefix="/api/functions", tags=["functions"])
 app.include_router(metering.router, prefix="/api/metering", tags=["metering"])
 app.include_router(base44_proxy.router, prefix="/api/base44", tags=["base44-proxy"])
+app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
 
 # Removed OpenTelemetry instrumentation
 
