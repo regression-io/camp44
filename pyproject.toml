@@ -64,6 +64,10 @@ line-length = 88
 strict = true
 ignore_missing_imports = true
 
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+ignore = ["tests_backup"]
+
 [dependency-groups]
 dev = [
     "hatchling>=1.27.0",
