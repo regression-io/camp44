@@ -38,6 +38,11 @@ class Settings(BaseSettings):
     STRIPE_SECRET_KEY: Optional[str] = None
     STRIPE_WEBHOOK_SECRET: Optional[str] = None
 
+    # Base44 LLM Integration
+    BASE44_API_URL: str = "https://app.base44.com/api"
+    BASE44_API_KEY: Optional[str] = None
+    BASE44_APP_ID: Optional[str] = None
+
     # First Superuser
     FIRST_SUPERUSER: str = "admin@example.com"
     FIRST_SUPERUSER_PASSWORD: str = "password"
