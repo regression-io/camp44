@@ -10,7 +10,7 @@ from sqlmodel import Session
 from camp44.api import deps
 from camp44.core.config import settings
 from camp44.core.security import get_password_hash
-from camp44.db.session import engine
+from camp44.db.session import engine, create_db_and_tables
 from camp44.main import app as fastapi_app
 from camp44.models.app import App
 from camp44.models.user import User
@@ -20,6 +20,14 @@ from camp44.core.security import create_access_token
 # Set the TESTING environment variable to disable OpenTelemetry
 # This must happen before any imports that might set up tracing
 os.environ["TESTING"] = "1"
+
+
+# Create database tables before any tests run
+@pytest.fixture(scope="session", autouse=True)
+def setup_database():
+    """Create database tables before running tests."""
+    create_db_and_tables()
+    yield
 
 
 @pytest.fixture
