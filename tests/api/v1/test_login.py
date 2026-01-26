@@ -6,7 +6,7 @@ from camp44.models.user import User
 
 def test_login(client: TestClient, test_user: User):
     response = client.post(
-        "/api/v1/auth/login",
+        "/api/auth/login",
         data={"username": test_user.email, "password": "testpassword"},
     )
     assert response.status_code == 200
@@ -17,7 +17,7 @@ def test_login(client: TestClient, test_user: User):
 
 def test_login_wrong_password(client: TestClient, test_user: User):
     response = client.post(
-        "/api/v1/auth/login",
+        "/api/auth/login",
         data={"username": test_user.email, "password": "wrongpassword"},
     )
     assert response.status_code == 401
@@ -30,7 +30,7 @@ def test_login_inactive_user(client: TestClient, db_session: Session, test_user:
     db_session.commit()
 
     response = client.post(
-        "/api/v1/auth/login",
+        "/api/auth/login",
         data={"username": test_user.email, "password": "testpassword"},
     )
     assert response.status_code == 400

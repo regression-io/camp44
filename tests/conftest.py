@@ -109,7 +109,7 @@ def test_app(client: TestClient, db_session: Session) -> App:
     
     try:
         response = client.post(
-            "/api/v1/apps/",
+            "/api/apps/",
             json=app_in,
         )
         print(f"TEST_APP FIXTURE - Response status: {response.status_code}")
@@ -133,7 +133,7 @@ def test_app(client: TestClient, db_session: Session) -> App:
                 print(f"TEST_APP FIXTURE - Cleaning up app ID: {created_app['id']}")
                 
                 # Clean up the app and its entities
-                cleanup_response = client.delete(f"/api/v1/apps/{created_app['id']}")
+                cleanup_response = client.delete(f"/api/apps/{created_app['id']}")
                 print(f"TEST_APP FIXTURE - Cleanup status: {cleanup_response.status_code}")
                 
                 # If HTTP delete fails, try direct SQL deletion

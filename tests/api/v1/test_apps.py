@@ -44,7 +44,7 @@ def test_create_list_get_app(client: TestClient, test_user: User):
         payload = {"name": "Test App", "description": "A test application"}
         print(f"Creating app with owner_id: {test_user.id}")
         
-        create_response = auth_client.post("/api/v1/apps/", json=payload)
+        create_response = auth_client.post("/api/apps/", json=payload)
         print(f"Create app response code: {create_response.status_code}")
         print(f"Create app response body: {create_response.text}")
         
@@ -56,14 +56,14 @@ def test_create_list_get_app(client: TestClient, test_user: User):
         app_id = created["id"]
 
         # List apps
-        list_response = auth_client.get("/api/v1/apps/")
+        list_response = auth_client.get("/api/apps/")
         assert list_response.status_code == 200
         apps = list_response.json()
         assert len(apps) >= 1
         assert any(app["id"] == app_id for app in apps)
 
         # Get specific app
-        get_response = auth_client.get(f"/api/v1/apps/{app_id}")
+        get_response = auth_client.get(f"/api/apps/{app_id}")
         assert get_response.status_code == 200
         fetched = get_response.json()
         assert fetched == created
@@ -72,7 +72,7 @@ def test_create_list_get_app(client: TestClient, test_user: User):
 def test_create_app_unauthorized(unauthorized_client: TestClient):
     """Test that creating an app requires authentication."""
     payload = {"name": "Unauthorized App", "description": "Should fail"}
-    response = unauthorized_client.post("/api/v1/apps/", json=payload)
+    response = unauthorized_client.post("/api/apps/", json=payload)
     assert response.status_code == 401
     error = response.json()
     # Handle either format: {'detail': '...'} or {'error': {'code': 401, 'message': '...'}}

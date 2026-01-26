@@ -23,6 +23,11 @@ All notable changes to this project will be documented in this file.
   - `/api/base44/generate-image` - Image generation
   - `/api/base44/extract-data` - File data extraction
 
+### Fixed
+- **Test paths** - Fixed all test files to use correct API routes (`/api/` instead of `/api/v1/`)
+  - `tests/conftest.py`, `test_apps.py`, `test_entities.py`, `test_login.py`, `test_oidc.py`, `test_passkey.py`, `test_metering.py`
+- **CI workflow** - Made tests blocking again now that paths are correct
+
 ### Changed
 - Admin routes registered at both `/admin` and `/api/admin` for SDK compatibility
 

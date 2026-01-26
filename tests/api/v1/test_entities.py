@@ -30,10 +30,10 @@ class TestEntityEndpoints:
         }
 
         # Create entity
-        print(f"TEST DEBUG - Creating entity with URL: /api/v1/apps/{test_app.id}/entities/{entity_name}")
+        print(f"TEST DEBUG - Creating entity with URL: /api/apps/{test_app.id}/entities/{entity_name}")
         print(f"TEST DEBUG - Entity payload: {entity_data}")
         response = client.post(
-            f"/api/v1/apps/{test_app.id}/entities/{entity_name}",
+            f"/api/apps/{test_app.id}/entities/{entity_name}",
             json=entity_data
         )
         print(f"TEST DEBUG - Response status: {response.status_code}")
@@ -49,7 +49,7 @@ class TestEntityEndpoints:
 
         # Read entity by ID
         response = client.get(
-            f"/api/v1/apps/{test_app.id}/entities/{entity_name}/{entity_id}"
+            f"/api/apps/{test_app.id}/entities/{entity_name}/{entity_id}"
         )
         print(f"TEST DEBUG - Response status: {response.status_code}")
         print(f"TEST DEBUG - Response body: {response.text}")
@@ -62,7 +62,7 @@ class TestEntityEndpoints:
 
         # List all entities
         response = client.get(
-            f"/api/v1/apps/{test_app.id}/entities/{entity_name}"
+            f"/api/apps/{test_app.id}/entities/{entity_name}"
         )
         print(f"TEST DEBUG - Response status: {response.status_code}")
         print(f"TEST DEBUG - Response body: {response.text}")
@@ -75,7 +75,7 @@ class TestEntityEndpoints:
         # Filter entities
         filter_payload = {"filters": {"email": "john.doe@example.com"}}
         response = client.post(
-            f"/api/v1/apps/{test_app.id}/entities/{entity_name}/filter",
+            f"/api/apps/{test_app.id}/entities/{entity_name}/filter",
             json=filter_payload
         )
         print(f"TEST DEBUG - Response status: {response.status_code}")
@@ -95,7 +95,7 @@ class TestEntityEndpoints:
             }
         }
         response = client.patch(
-            f"/api/v1/apps/{test_app.id}/entities/{entity_name}/{entity_id}",
+            f"/api/apps/{test_app.id}/entities/{entity_name}/{entity_id}",
             json=update_data
         )
         print(f"TEST DEBUG - Response status: {response.status_code}")
@@ -109,7 +109,7 @@ class TestEntityEndpoints:
 
         # Delete entity
         response = client.delete(
-            f"/api/v1/apps/{test_app.id}/entities/{entity_name}/{entity_id}"
+            f"/api/apps/{test_app.id}/entities/{entity_name}/{entity_id}"
         )
         print(f"TEST DEBUG - Response status: {response.status_code}")
         print(f"TEST DEBUG - Response body: {response.text}")
@@ -118,7 +118,7 @@ class TestEntityEndpoints:
 
         # Verify deletion
         response = client.get(
-            f"/api/v1/apps/{test_app.id}/entities/{entity_name}/{entity_id}"
+            f"/api/apps/{test_app.id}/entities/{entity_name}/{entity_id}"
         )
         print(f"TEST DEBUG - Response status: {response.status_code}")
         print(f"TEST DEBUG - Response body: {response.text}")
@@ -137,7 +137,7 @@ class TestEntityEndpoints:
 
         # Create entity as authorized user
         response = client.post(
-            f"/api/v1/apps/{test_app.id}/entities/{entity_name}",
+            f"/api/apps/{test_app.id}/entities/{entity_name}",
             json=entity_data
         )
         print(f"TEST DEBUG - Response status: {response.status_code}")
@@ -148,12 +148,12 @@ class TestEntityEndpoints:
         # Attempt unauthorized access
         endpoints = [
             # (method, path, data, expected status)
-            ("GET", f"/api/v1/apps/{test_app.id}/entities/{entity_name}", None, 401),
-            ("GET", f"/api/v1/apps/{test_app.id}/entities/{entity_name}/{entity_id}", None, 401),
-            ("POST", f"/api/v1/apps/{test_app.id}/entities/{entity_name}", entity_data, 401),
-            ("POST", f"/api/v1/apps/{test_app.id}/entities/{entity_name}/filter", {"price": 99.99}, 401),
-            ("PATCH", f"/api/v1/apps/{test_app.id}/entities/{entity_name}/{entity_id}", {"data": {"price": 79.99}}, 401),
-            ("DELETE", f"/api/v1/apps/{test_app.id}/entities/{entity_name}/{entity_id}", None, 401),
+            ("GET", f"/api/apps/{test_app.id}/entities/{entity_name}", None, 401),
+            ("GET", f"/api/apps/{test_app.id}/entities/{entity_name}/{entity_id}", None, 401),
+            ("POST", f"/api/apps/{test_app.id}/entities/{entity_name}", entity_data, 401),
+            ("POST", f"/api/apps/{test_app.id}/entities/{entity_name}/filter", {"price": 99.99}, 401),
+            ("PATCH", f"/api/apps/{test_app.id}/entities/{entity_name}/{entity_id}", {"data": {"price": 79.99}}, 401),
+            ("DELETE", f"/api/apps/{test_app.id}/entities/{entity_name}/{entity_id}", None, 401),
         ]
 
         for method, path, data, expected_status in endpoints:
@@ -182,7 +182,7 @@ class TestEntityEndpoints:
         }
 
         response = client.post(
-            f"/api/v1/apps/{test_app.id}/entities/{entity_name}",
+            f"/api/apps/{test_app.id}/entities/{entity_name}",
             json=entity_data
         )
         print(f"TEST DEBUG - Response status: {response.status_code}")
@@ -192,7 +192,7 @@ class TestEntityEndpoints:
         # Test with wrong app ID
         fake_app_id = str(uuid.uuid4())
         response = client.post(
-            f"/api/v1/apps/{fake_app_id}/entities/{entity_name}",
+            f"/api/apps/{fake_app_id}/entities/{entity_name}",
             json={"name": entity_name, "data": {"title": "Test Product"}}
         )
         print(f"TEST DEBUG - Response status: {response.status_code}")
@@ -202,7 +202,7 @@ class TestEntityEndpoints:
         # Test access to non-existent entity
         fake_entity_id = str(uuid.uuid4())
         response = client.get(
-            f"/api/v1/apps/{test_app.id}/entities/{entity_name}/{fake_entity_id}"
+            f"/api/apps/{test_app.id}/entities/{entity_name}/{fake_entity_id}"
         )
         print(f"TEST DEBUG - Response status: {response.status_code}")
         print(f"TEST DEBUG - Response body: {response.text}")
@@ -220,7 +220,7 @@ class TestEntityEndpoints:
         }
         
         # Try entity creation with very detailed logging
-        url = f"/api/v1/apps/{test_app.id}/entities/{entity_name}"
+        url = f"/api/apps/{test_app.id}/entities/{entity_name}"
         print(f"DEBUG TEST - URL: {url}")
         print(f"DEBUG TEST - JSON: {entity_data}")
         

@@ -28,7 +28,7 @@ def mock_pika():
 def test_metering_unauthenticated(unauthorized_client: TestClient, mock_pika):
     """Test that metering requires authentication."""
     response = unauthorized_client.post(
-        "/api/v1/metering",
+        "/api/metering",
         json={"tenant_id": "1", "app_id": "1", "event_name": "test_event"},
     )
     assert response.status_code == 401
@@ -43,7 +43,7 @@ def test_metering_success(client: TestClient, test_user: User, mock_pika):
     Note: client fixture automatically authenticates as test_user.
     """    
     response = client.post(
-        "/api/v1/metering",
+        "/api/metering",
         json={"tenant_id": "1", "app_id": "1", "event_name": "test_event"},
     )
     assert response.status_code == 202

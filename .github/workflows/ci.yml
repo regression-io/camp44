@@ -34,6 +34,5 @@ jobs:
         run: uv run ruff format --check . || echo "::warning::Formatting issues found - see output above"
         continue-on-error: true
 
-      - name: Run tests (non-blocking)
-        run: uv run pytest tests/ -v --tb=short || echo "::warning::Tests failed - see output above"
-        continue-on-error: true
+      - name: Run tests
+        run: uv run pytest tests/ -v --tb=short
