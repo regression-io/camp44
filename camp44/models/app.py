@@ -1,8 +1,8 @@
 import uuid
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
+from sqlalchemy import JSON
 from sqlmodel import Column, Field, Relationship, SQLModel
-from sqlalchemy.dialects.postgresql import JSONB
 
 if TYPE_CHECKING:
     from .user import User
@@ -18,7 +18,7 @@ class App(AppBase, table=True):
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     stripe_price_id: Optional[str] = Field(default=None)
     requires_auth: bool = Field(default=True)  # Default to requiring auth
-    public_settings: Dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSONB, default={}))
+    public_settings: Dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON, default={}))
     owner_id: uuid.UUID = Field(foreign_key="user.id")
     owner: "User" = Relationship(back_populates="apps")
     entities: List["Entity"] = Relationship(back_populates="app", sa_relationship_kwargs={"cascade": "all, delete-orphan"})
