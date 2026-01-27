@@ -52,7 +52,7 @@ def get_optional_user_id(
     response_model=AppPublicSettings,
     responses={
         403: {
-            "description": "Authentication required or user not registered",
+            "description": "User not registered or inactive",
             "model": AuthRequiredError,
         },
         404: {"description": "App not found"},
@@ -67,30 +67,22 @@ def get_app_public_settings(
 
     This endpoint is public and used by frontends to determine:
     - If the app exists
-    - If authentication is required
+    - If authentication is required (via requires_auth field)
     - Public configuration settings
 
+    Always returns 200 with app settings. The frontend checks requires_auth
+    and redirects to login if needed. Only returns 403 if user IS authenticated
+    but not registered/active for this app.
+
     Returns:
-        200: App public settings
-        403: Auth required (extra_data.reason = "auth_required")
+        200: App public settings (frontend checks requires_auth + token)
         403: User not registered (extra_data.reason = "user_not_registered")
+        403: User inactive (extra_data.reason = "user_inactive")
         404: App not found
     """
     app = crud.app.get_app(db, id=app_id)
     if not app:
         raise HTTPException(status_code=404, detail="App not found")
-
-    # If app requires auth and user is not authenticated
-    if app.requires_auth and user_id is None:
-        # Return 403 with extra_data.reason for frontend to handle
-        from fastapi.responses import JSONResponse
-        return JSONResponse(
-            status_code=status.HTTP_403_FORBIDDEN,
-            content={
-                "detail": "Authentication required",
-                "extra_data": {"reason": "auth_required"},
-            },
-        )
 
     # If user is authenticated, verify they exist and are active
     if user_id is not None:
@@ -114,6 +106,7 @@ def get_app_public_settings(
                 },
             )
 
+    # Always return public settings - frontend checks requires_auth + token
     return AppPublicSettings(
         id=app.id,
         name=app.name,
