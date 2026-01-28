@@ -17,7 +17,7 @@ router = APIRouter()
 
 
 @router.get("/login")
-def oidc_login(request: Request):
+async def oidc_login(request: Request):
     """
     Initiate OIDC login flow.
     """
@@ -29,16 +29,13 @@ def oidc_login(request: Request):
 
     # Redirect to OIDC provider's authorization endpoint
     redirect_uri = request.url_for('oidc_callback')
-    # Note: authorize_redirect returns a Response, not a coroutine
-    response = oauth.oidc.authorize_redirect(request, redirect_uri)
-    return RedirectResponse(
-        url=response.headers.get("Location"),
-        status_code=status.HTTP_302_FOUND
-    )
+    # authorize_redirect is async in authlib's Starlette integration
+    response = await oauth.oidc.authorize_redirect(request, redirect_uri)
+    return response
 
 
 @router.get("/callback")
-def oidc_callback(
+async def oidc_callback(
         request: Request,
         db: Session = Depends(deps.get_db)
 ):
@@ -53,8 +50,8 @@ def oidc_callback(
 
     try:
         # Get token and user info from OIDC provider
-        # Note: authorize_access_token returns a dict, not a coroutine
-        token = oauth.oidc.authorize_access_token(request)
+        # authorize_access_token is async in authlib's Starlette integration
+        token = await oauth.oidc.authorize_access_token(request)
         user_info = token.get('userinfo')
 
         if not user_info:
