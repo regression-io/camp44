@@ -27,6 +27,11 @@ async def oidc_login(request: Request):
             content={"detail": "OIDC authentication not configured"}
         )
 
+    # Store the frontend callback URL in session for use after OIDC callback
+    from_url = request.query_params.get('from_url')
+    if from_url:
+        request.session['oidc_from_url'] = from_url
+
     # Redirect to OIDC provider's authorization endpoint
     redirect_uri = request.url_for('oidc_callback')
     # authorize_redirect is async in authlib's Starlette integration
@@ -97,8 +102,16 @@ async def oidc_callback(
             data={"sub": str(user.id)}
         )
 
-        # Set up redirect URL with token - typically to frontend
-        redirect_url = f"/auth-callback?token={access_token}"
+        # Get the frontend callback URL from session (stored during /login)
+        from_url = request.session.pop('oidc_from_url', None)
+
+        if from_url:
+            # Use the frontend's callback URL
+            separator = '&' if '?' in from_url else '?'
+            redirect_url = f"{from_url}{separator}token={access_token}"
+        else:
+            # Fallback to relative path (stays on API domain)
+            redirect_url = f"/auth-callback?token={access_token}"
 
         return RedirectResponse(
             url=redirect_url,
