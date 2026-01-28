@@ -17,6 +17,41 @@ def get_user_by_email(session: Session, *, email: str) -> Optional[User]:
     return session.exec(statement).first()
 
 
+# Alias for OIDC callback compatibility
+def get_by_email(session: Session, *, email: str) -> Optional[User]:
+    """Get a user by email (alias for get_user_by_email)."""
+    return get_user_by_email(session, email=email)
+
+
+def get_by_oidc_sub(session: Session, *, oidc_sub: str) -> Optional[User]:
+    """Get a user by OIDC subject identifier."""
+    statement = select(User).where(User.oidc_sub == oidc_sub)
+    return session.exec(statement).first()
+
+
+def create_oidc_user(
+    session: Session,
+    *,
+    email: str,
+    full_name: str,
+    oidc_sub: str,
+    tenant_id: str = "default",
+) -> User:
+    """Create a new user from OIDC authentication."""
+    db_obj = User(
+        email=email,
+        display_name=full_name,
+        oidc_sub=oidc_sub,
+        tenant_id=tenant_id,
+        oidc_email_verified=True,
+        hashed_password=None,  # OIDC users don't have passwords
+    )
+    session.add(db_obj)
+    session.commit()
+    session.refresh(db_obj)
+    return db_obj
+
+
 def create_user(session: Session, *, user_in: UserCreate) -> User:
     """Create a new user."""
     db_obj = User(
