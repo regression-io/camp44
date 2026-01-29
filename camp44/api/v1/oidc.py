@@ -29,8 +29,11 @@ async def oidc_login(request: Request):
 
     # Store the frontend callback URL in session for use after OIDC callback
     from_url = request.query_params.get('from_url')
+    print(f"OIDC Login: from_url param = {from_url}")
+    print(f"OIDC Login: session before = {dict(request.session)}")
     if from_url:
         request.session['oidc_from_url'] = from_url
+    print(f"OIDC Login: session after = {dict(request.session)}")
 
     # Redirect to OIDC provider's authorization endpoint
     redirect_uri = request.url_for('oidc_callback')
@@ -103,7 +106,9 @@ async def oidc_callback(
         )
 
         # Get the frontend callback URL from session (stored during /login)
+        print(f"OIDC Callback: session before pop = {dict(request.session)}")
         from_url = request.session.pop('oidc_from_url', None)
+        print(f"OIDC Callback: from_url from session = {from_url}")
 
         if from_url:
             # Use the frontend's callback URL
@@ -113,6 +118,7 @@ async def oidc_callback(
             # Fallback to relative path (stays on API domain)
             redirect_url = f"/auth-callback?token={access_token}"
 
+        print(f"OIDC Callback: redirecting to = {redirect_url[:100]}...")
         return RedirectResponse(
             url=redirect_url,
             status_code=status.HTTP_307_TEMPORARY_REDIRECT
