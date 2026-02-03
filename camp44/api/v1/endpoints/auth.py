@@ -2,17 +2,41 @@ from fastapi import APIRouter, Depends, HTTPException, status, Request, Response
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi.responses import RedirectResponse, HTMLResponse
 from sqlalchemy.orm import Session
+from pydantic import BaseModel, EmailStr
+from typing import Optional
 import logging
-import json
+import secrets
+import stripe
 
 from camp44 import crud
 from camp44.api import deps
-from camp44.core.security import create_access_token
+from camp44.core.security import create_access_token, get_password_hash
+from camp44.core.config import settings
 from camp44.models.token import Token
 from camp44.models.user import User, UserCreate
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+# Initialize Stripe
+if settings.STRIPE_SECRET_KEY:
+    stripe.api_key = settings.STRIPE_SECRET_KEY
+
+
+class CheckoutRequest(BaseModel):
+    """Request body for creating a Stripe checkout session."""
+    email: EmailStr
+    name: str
+    plan: str  # "growth" or "scale"
+    company: Optional[str] = None
+    success_url: str
+    cancel_url: str
+
+
+class CheckoutResponse(BaseModel):
+    """Response with Stripe checkout URL."""
+    checkout_url: str
+    session_id: str
 
 @router.get("/login", response_class=HTMLResponse)
 async def login_page(
@@ -199,3 +223,130 @@ def register(
         )
     user = crud.user.create_user(session=db, user_in=user_in)
     return user
+
+
+# Stripe price IDs for plans (set in production via env or database)
+PLAN_PRICES = {
+    "growth": {
+        "price_cents": 9900,  # $99/month
+        "name": "Growth",
+        "features": "20 products, 500 prospects/month",
+    },
+    "scale": {
+        "price_cents": 29900,  # $299/month
+        "name": "Scale",
+        "features": "Unlimited products, 2000 prospects/month",
+    },
+}
+
+
+@router.post("/checkout", response_model=CheckoutResponse)
+def create_checkout_session(
+    *,
+    db: Session = Depends(deps.get_db),
+    checkout_request: CheckoutRequest,
+) -> CheckoutResponse:
+    """
+    Create a Stripe checkout session for subscription signup.
+
+    This endpoint:
+    1. Creates or retrieves the user
+    2. Creates a Stripe customer
+    3. Creates a checkout session with 7-day trial
+    4. Returns the checkout URL
+    """
+    if not settings.STRIPE_SECRET_KEY:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Stripe is not configured",
+        )
+
+    plan_info = PLAN_PRICES.get(checkout_request.plan.lower())
+    if not plan_info:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid plan: {checkout_request.plan}. Must be 'growth' or 'scale'.",
+        )
+
+    # Check if user exists
+    user = crud.user.get_user_by_email(session=db, email=checkout_request.email)
+
+    if user:
+        # User exists - use their Stripe customer ID or create one
+        if not user.stripe_customer_id:
+            customer = stripe.Customer.create(
+                email=checkout_request.email,
+                name=checkout_request.name,
+                metadata={
+                    "user_id": str(user.id),
+                    "company": checkout_request.company or "",
+                },
+            )
+            user.stripe_customer_id = customer.id
+            db.add(user)
+            db.commit()
+        stripe_customer_id = user.stripe_customer_id
+    else:
+        # Create Stripe customer first (user will be created on webhook)
+        customer = stripe.Customer.create(
+            email=checkout_request.email,
+            name=checkout_request.name,
+            metadata={
+                "company": checkout_request.company or "",
+                "pending_signup": "true",
+            },
+        )
+        stripe_customer_id = customer.id
+
+    # Create Stripe checkout session
+    try:
+        session = stripe.checkout.Session.create(
+            customer=stripe_customer_id,
+            line_items=[
+                {
+                    "price_data": {
+                        "currency": "usd",
+                        "product_data": {
+                            "name": f"ScaleMate {plan_info['name']} Plan",
+                            "description": plan_info["features"],
+                        },
+                        "unit_amount": plan_info["price_cents"],
+                        "recurring": {
+                            "interval": "month",
+                        },
+                    },
+                    "quantity": 1,
+                },
+            ],
+            mode="subscription",
+            subscription_data={
+                "trial_period_days": 7,
+                "metadata": {
+                    "plan": checkout_request.plan,
+                    "customer_name": checkout_request.name,
+                    "company": checkout_request.company or "",
+                },
+            },
+            success_url=checkout_request.success_url + "?session_id={CHECKOUT_SESSION_ID}",
+            cancel_url=checkout_request.cancel_url,
+            allow_promotion_codes=True,
+        )
+
+        logger.info(f"Created checkout session {session.id} for {checkout_request.email}")
+
+        if not session.url:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Stripe session URL not available",
+            )
+
+        return CheckoutResponse(
+            checkout_url=session.url,
+            session_id=session.id,
+        )
+    except stripe.StripeError as e:
+        logger.error(f"Stripe error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create checkout session: {str(e)}",
+        )
