@@ -225,17 +225,15 @@ def register(
     return user
 
 
-# Stripe price IDs for plans (set in production via env or database)
+# Stripe price IDs for ScaleMate plans
 PLAN_PRICES = {
     "growth": {
-        "price_cents": 9900,  # $99/month
+        "price_id": "price_1SwsWNClJjEKfkheOuqDhKhf",  # $99/month
         "name": "Growth",
-        "features": "20 products, 500 prospects/month",
     },
     "scale": {
-        "price_cents": 29900,  # $299/month
+        "price_id": "price_1SwsWQClJjEKfkhe9S8PpOyy",  # $299/month
         "name": "Scale",
-        "features": "Unlimited products, 2000 prospects/month",
     },
 }
 
@@ -304,17 +302,7 @@ def create_checkout_session(
             customer=stripe_customer_id,
             line_items=[
                 {
-                    "price_data": {
-                        "currency": "usd",
-                        "product_data": {
-                            "name": f"ScaleMate {plan_info['name']} Plan",
-                            "description": plan_info["features"],
-                        },
-                        "unit_amount": plan_info["price_cents"],
-                        "recurring": {
-                            "interval": "month",
-                        },
-                    },
+                    "price": plan_info["price_id"],
                     "quantity": 1,
                 },
             ],
