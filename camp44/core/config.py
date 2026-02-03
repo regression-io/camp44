@@ -37,6 +37,8 @@ class Settings(BaseSettings):
     # Stripe
     STRIPE_SECRET_KEY: Optional[str] = None
     STRIPE_WEBHOOK_SECRET: Optional[str] = None
+    STRIPE_GROWTH_PRICE_ID: str = "price_1SwsWNClJjEKfkheOuqDhKhf"
+    STRIPE_SCALE_PRICE_ID: str = "price_1SwsWQClJjEKfkhe9S8PpOyy"
 
     # Base44 Integration
     BASE44_API_URL: str = "https://app.base44.com/api"

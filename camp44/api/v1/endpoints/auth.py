@@ -225,17 +225,19 @@ def register(
     return user
 
 
-# Stripe price IDs for ScaleMate plans
-PLAN_PRICES = {
-    "growth": {
-        "price_id": "price_1SwsWNClJjEKfkheOuqDhKhf",  # $99/month
-        "name": "Growth",
-    },
-    "scale": {
-        "price_id": "price_1SwsWQClJjEKfkhe9S8PpOyy",  # $299/month
-        "name": "Scale",
-    },
-}
+# Stripe price IDs for ScaleMate plans (from environment config)
+def get_plan_prices():
+    """Get plan prices from settings."""
+    return {
+        "growth": {
+            "price_id": settings.STRIPE_GROWTH_PRICE_ID,
+            "name": "Growth",
+        },
+        "scale": {
+            "price_id": settings.STRIPE_SCALE_PRICE_ID,
+            "name": "Scale",
+        },
+    }
 
 
 @router.post("/checkout", response_model=CheckoutResponse)
@@ -259,7 +261,7 @@ def create_checkout_session(
             detail="Stripe is not configured",
         )
 
-    plan_info = PLAN_PRICES.get(checkout_request.plan.lower())
+    plan_info = get_plan_prices().get(checkout_request.plan.lower())
     if not plan_info:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -333,8 +335,120 @@ def create_checkout_session(
             session_id=session.id,
         )
     except stripe.StripeError as e:
-        logger.error(f"Stripe error: {e}")
+        logger.error(f"Stripe error for {checkout_request.email}: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to create checkout session: {str(e)}",
+            detail="Payment service temporarily unavailable. Please try again.",
         )
+
+
+@router.post("/webhook")
+async def stripe_webhook(request: Request, db: Session = Depends(deps.get_db)):
+    """
+    Handle Stripe webhook events.
+
+    Processes:
+    - checkout.session.completed: Creates user account after successful payment
+    - customer.subscription.deleted: Handles subscription cancellation
+    """
+    payload = await request.body()
+    sig_header = request.headers.get("stripe-signature")
+
+    if not sig_header:
+        logger.warning("Stripe webhook missing signature header")
+        raise HTTPException(status_code=400, detail="Missing signature header")
+
+    # Verify webhook signature
+    try:
+        if settings.STRIPE_WEBHOOK_SECRET:
+            event = stripe.Webhook.construct_event(
+                payload, sig_header, settings.STRIPE_WEBHOOK_SECRET
+            )
+        else:
+            # In development, parse without verification
+            import json
+            event = stripe.Event.construct_from(
+                json.loads(payload), stripe.api_key
+            )
+    except ValueError as e:
+        logger.error(f"Invalid webhook payload: {e}")
+        raise HTTPException(status_code=400, detail="Invalid payload")
+    except stripe.SignatureVerificationError as e:
+        logger.error(f"Invalid webhook signature: {e}")
+        raise HTTPException(status_code=400, detail="Invalid signature")
+
+    event_type = event.type
+    logger.info(f"Processing Stripe webhook: {event_type}")
+
+    # Handle checkout.session.completed - create user account
+    if event_type == "checkout.session.completed":
+        session = event.data.object
+        customer_id = session.customer
+        subscription_id = session.subscription
+
+        # Get customer details from Stripe
+        try:
+            customer = stripe.Customer.retrieve(customer_id)
+        except stripe.StripeError as e:
+            logger.error(f"Failed to retrieve Stripe customer {customer_id}: {e}")
+            return {"status": "error", "message": "Failed to retrieve customer"}
+
+        email = customer.email
+        if not email:
+            logger.error(f"Stripe customer {customer_id} has no email")
+            return {"status": "error", "message": "Customer has no email"}
+
+        name = customer.name or email.split("@")[0]
+        company = customer.metadata.get("company", "") if customer.metadata else ""
+
+        # Check if user already exists
+        existing_user = crud.user.get_user_by_email(session=db, email=email)
+        if existing_user:
+            # Update existing user with subscription info
+            existing_user.stripe_customer_id = customer_id
+            existing_user.stripe_subscription_id = subscription_id
+            db.add(existing_user)
+            db.commit()
+            logger.info(f"Updated existing user {email} with subscription {subscription_id}")
+            return {"status": "success", "message": "User updated"}
+
+        # Generate a secure random password
+        temp_password = secrets.token_urlsafe(16)
+
+        # Create the user
+        user_in = UserCreate(
+            email=email,
+            password=temp_password,
+            display_name=name,
+        )
+
+        try:
+            new_user = crud.user.create_user(session=db, user_in=user_in)
+            new_user.stripe_customer_id = customer_id
+            new_user.stripe_subscription_id = subscription_id
+            db.add(new_user)
+            db.commit()
+            logger.info(f"Created new user {email} from Stripe checkout")
+
+            # TODO: Send welcome email with password reset link
+            # For now, log the temp password (remove in production!)
+            logger.info(f"User {email} created with temp password (send reset email)")
+
+            return {"status": "success", "message": "User created", "user_id": str(new_user.id)}
+        except Exception as e:
+            logger.error(f"Failed to create user {email}: {e}")
+            db.rollback()
+            return {"status": "error", "message": str(e)}
+
+    # Handle subscription deleted
+    elif event_type == "customer.subscription.deleted":
+        subscription = event.data.object
+        customer_id = subscription.customer
+
+        # Find user by stripe_customer_id and deactivate
+        # This would require a query by stripe_customer_id
+        logger.info(f"Subscription {subscription.id} deleted for customer {customer_id}")
+        return {"status": "success", "message": "Subscription cancellation noted"}
+
+    # Return success for unhandled events
+    return {"status": "success", "message": f"Unhandled event type: {event_type}"}

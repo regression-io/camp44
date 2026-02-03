@@ -46,6 +46,7 @@ class User(SQLModel, table=True):
     display_name: Optional[str] = None
     hashed_password: Optional[str] = None  # Can be null for OIDC-only users
     stripe_customer_id: Optional[str] = Field(default=None, index=True)
+    stripe_subscription_id: Optional[str] = Field(default=None, index=True)
     is_active: bool = Field(default=True)
     roles: List[str] = Field(default=[], sa_column=Column(JSON))
     created_at: datetime = Field(default_factory=datetime.utcnow)
