@@ -36,3 +36,25 @@ jobs:
 
       - name: Run tests
         run: uv run pytest tests/ -v --tb=short
+
+  notify:
+    needs: build
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify Discord
+        if: always()
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+          STATUS: ${{ needs.build.result }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ "$STATUS" = "success" ]; then
+            EMOJI="✅"; COLOR=3066993; DESC=""
+          else
+            EMOJI="❌"; COLOR=15158332; DESC="$RUN_URL"
+          fi
+          curl -sS -X POST "$DISCORD_WEBHOOK" \
+            -H "Content-Type: application/json" \
+            -d "{\"embeds\":[{\"title\":\"$EMOJI $REPO\",\"color\":$COLOR,\"description\":\"$DESC\"}]}"
