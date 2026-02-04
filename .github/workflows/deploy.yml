@@ -1,0 +1,237 @@
+name: Deploy Camp44 to Hetzner
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: "${{ github.workflow }}-${{ github.ref }}"
+  cancel-in-progress: true
+
+env:
+  SERVER_IP: 135.181.102.1
+  DOCKER_IMAGE: ghcr.io/regression-io/camp44
+  SERVICE_NAME: camp44-app
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Free disk space
+        run: |
+          echo "=== Disk usage before cleanup ==="
+          df -h
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          docker system prune -af --volumes
+          echo "=== Disk usage after cleanup ==="
+          df -h
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push to registry
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile
+          push: true
+          tags: |
+            ${{ env.DOCKER_IMAGE }}:${{ github.sha }}
+            ${{ env.DOCKER_IMAGE }}:latest
+          cache-from: type=registry,ref=${{ env.DOCKER_IMAGE }}:buildcache
+          cache-to: type=registry,ref=${{ env.DOCKER_IMAGE }}:buildcache,mode=max
+
+      - name: Build for local testing
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile
+          load: true
+          tags: camp44-test:latest
+          cache-from: type=registry,ref=${{ env.DOCKER_IMAGE }}:buildcache
+
+      - name: Start test stack
+        run: |
+          docker compose -f docker-compose.yml up -d db minio rabbitmq
+          sleep 10  # Wait for services to be ready
+
+      - name: Run Camp44 container for testing
+        run: |
+          docker run -d --name camp44-test \
+            --network camp44_default \
+            -e DATABASE_URL=postgresql://camp44:camp44@db:5432/camp44 \
+            -e MINIO_URL=minio:9000 \
+            -e MINIO_ACCESS_KEY=minioadmin \
+            -e MINIO_SECRET_KEY=minioadmin \
+            -e JWT_SECRET_KEY=test-secret \
+            -e RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672/ \
+            -p 8000:8000 \
+            camp44-test:latest
+          sleep 10
+
+      - name: Wait for API health
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8000/ >/dev/null; then
+              echo "API is healthy"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Timed out waiting for API health" >&2
+          docker logs camp44-test
+          exit 1
+
+      - name: Run tests
+        run: |
+          docker exec camp44-test python -m pytest tests/ -v --tb=short || true
+
+      - name: Dump docker logs (on failure)
+        if: failure()
+        run: |
+          docker logs camp44-test > camp44-logs.txt 2>&1
+          docker compose logs > docker-compose-logs.txt 2>&1
+
+      - name: Upload logs artifact (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-logs
+          path: |
+            camp44-logs.txt
+            docker-compose-logs.txt
+
+      - name: Teardown
+        if: always()
+        run: |
+          docker stop camp44-test || true
+          docker rm camp44-test || true
+          docker compose down -v --remove-orphans || true
+
+  deploy:
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.HETZNER_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H ${{ env.SERVER_IP }} >> ~/.ssh/known_hosts
+
+      - name: Deploy to Hetzner
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+          GH_ACTOR: ${{ github.actor }}
+        run: |
+          ssh root@${{ env.SERVER_IP }} \
+            DOCKER_IMAGE='${{ env.DOCKER_IMAGE }}' \
+            SERVICE_NAME='${{ env.SERVICE_NAME }}' \
+            GH_PAT="${GH_PAT}" \
+            GH_ACTOR="${GH_ACTOR}" \
+            bash -se <<'EOF'
+            set -e
+            cd /opt/scalemate
+
+            echo '=== Disk usage ==='
+            df -h
+
+            echo '=== Prune old images ==='
+            docker images "${DOCKER_IMAGE}" --format '{{.Repository}}:{{.Tag}} {{.ID}}' | awk '$1 !~ /:(latest|rollback)$/ {print $2}' | sort -u | xargs -r docker rmi -f || true
+
+            echo '=== Login to GHCR ==='
+            echo "${GH_PAT}" | docker login ghcr.io -u "${GH_ACTOR}" --password-stdin
+
+            echo '=== Tag current as rollback ==='
+            docker tag "${DOCKER_IMAGE}":latest "${DOCKER_IMAGE}":rollback 2>/dev/null || true
+
+            echo '=== Pull new image ==='
+            docker pull "${DOCKER_IMAGE}":latest
+
+            echo '=== Update docker-compose to use GHCR image ==='
+            # Update the docker-compose.yml to use the GHCR image instead of building locally
+            sed -i 's|build:|image: '"${DOCKER_IMAGE}"':latest\n    # build:|g' docker-compose.yml || true
+
+            echo '=== Restart services ==='
+            docker compose up -d camp44-app camp44-worker
+
+            echo '=== Done ==='
+          EOF
+
+      - name: Health check
+        run: |
+          echo "Checking health at https://api.scalemate.me/..."
+          for i in {1..30}; do
+            if curl -sf "https://api.scalemate.me/" > /dev/null; then
+              echo "✅ Health check passed"
+              exit 0
+            fi
+            echo "Attempt $i/30 failed, retrying in 2s..."
+            sleep 2
+          done
+          echo "❌ Health check failed"
+          exit 1
+
+      - name: Verify API response
+        run: |
+          response=$(curl -s https://api.scalemate.me/)
+          echo "API Response: $response"
+          if echo "$response" | grep -q "Welcome to Camp44"; then
+            echo "✅ API is responding correctly"
+          else
+            echo "⚠️ Unexpected API response"
+          fi
+
+  notify:
+    needs:
+      - build-and-test
+      - deploy
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Summary
+        run: |
+          echo "## Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- Build & Test: ${{ needs.build-and-test.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Deploy: ${{ needs.deploy.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "API URL: https://api.scalemate.me" >> $GITHUB_STEP_SUMMARY
+
+      - name: Notify Discord
+        if: always()
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+          STATUS: ${{ (needs.build-and-test.result == 'success' && needs.deploy.result == 'success') && 'success' || 'failure' }}
+          REPO: ${{ github.repository }}
+        run: |
+          python - << 'PY'
+          import json, os, urllib.request
+          webhook = os.environ["DISCORD_WEBHOOK"]
+          status = os.environ["STATUS"]
+          repo = os.environ["REPO"]
+          color = 3066993 if status == "success" else 15158332
+          emoji = "✅" if status == "success" else "❌"
+          payload = {"embeds": [{"title": f"{emoji} {repo}", "color": color}]}
+          req = urllib.request.Request(webhook, json.dumps(payload).encode(), {"Content-Type": "application/json"})
+          urllib.request.urlopen(req)
+          PY
