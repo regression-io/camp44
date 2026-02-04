@@ -225,6 +225,11 @@ jobs:
           REPO: ${{ github.repository }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          curl -sf -X POST "$DISCORD_WEBHOOK" \
+          if [ "$STATUS" = "success" ]; then
+            EMOJI="✅"; COLOR=3066993; DESC=""
+          else
+            EMOJI="❌"; COLOR=15158332; DESC="$RUN_URL"
+          fi
+          curl -sS -X POST "$DISCORD_WEBHOOK" \
             -H "Content-Type: application/json" \
-            -d "{\"embeds\": [{\"title\": \"$([ \"$STATUS\" = 'success' ] && echo '✅' || echo '❌') $REPO\", \"color\": $([ \"$STATUS\" = 'success' ] && echo '3066993' || echo '15158332'), \"description\": \"$([ \"$STATUS\" != 'success' ] && echo \"$RUN_URL\" || echo '')\"}]}"
+            -d "{\"embeds\":[{\"title\":\"$EMOJI $REPO\",\"color\":$COLOR,\"description\":\"$DESC\"}]}"
