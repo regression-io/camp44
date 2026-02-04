@@ -1,0 +1,40 @@
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem",
+        "./"
+      ]
+    },
+    "memory": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-memory"
+      ]
+    },
+    "playwright": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@playwright/mcp@latest"
+      ],
+      "description": "Browser automation for web scraping and testing"
+    },
+    "scalemate": {
+      "args": [
+        "--directory",
+        "/Users/ruze/reg/my/SmartMemory/smart-memory-infra/packages/sm-hetzner",
+        "run",
+        "sm-hetzner",
+        "mcp"
+      ],
+      "command": "uv",
+      "env": {
+        "HETZNER_PROJECT": "scalemate"
+      }
+    }
+  }
+}

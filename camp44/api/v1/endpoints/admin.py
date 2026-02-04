@@ -19,8 +19,11 @@ router = APIRouter()
 
 
 def require_admin(current_user: User = Depends(deps.get_current_active_user)) -> User:
-    """Dependency that requires user to be an admin."""
-    if not current_user.is_superuser:
+    """Dependency that requires user to be an admin.
+
+    Checks if user has 'admin' role in their roles array.
+    """
+    if 'admin' not in (current_user.roles or []):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin access required"
@@ -169,7 +172,9 @@ def make_admin(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    user.is_superuser = True
+    # Add 'admin' role if not already present
+    if 'admin' not in (user.roles or []):
+        user.roles = (user.roles or []) + ['admin']
     db.commit()
     db.refresh(user)
     return user
@@ -193,7 +198,9 @@ def remove_admin(
             detail="Cannot remove your own admin privileges"
         )
 
-    user.is_superuser = False
+    # Remove 'admin' role if present
+    if 'admin' in (user.roles or []):
+        user.roles = [r for r in user.roles if r != 'admin']
     db.commit()
     db.refresh(user)
     return user
