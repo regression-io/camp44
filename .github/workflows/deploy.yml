@@ -223,15 +223,8 @@ jobs:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
           STATUS: ${{ (needs.build-and-test.result == 'success' && needs.deploy.result == 'success') && 'success' || 'failure' }}
           REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          python - << 'PY'
-          import json, os, urllib.request
-          webhook = os.environ["DISCORD_WEBHOOK"]
-          status = os.environ["STATUS"]
-          repo = os.environ["REPO"]
-          color = 3066993 if status == "success" else 15158332
-          emoji = "✅" if status == "success" else "❌"
-          payload = {"embeds": [{"title": f"{emoji} {repo}", "color": color}]}
-          req = urllib.request.Request(webhook, json.dumps(payload).encode(), {"Content-Type": "application/json"})
-          urllib.request.urlopen(req)
-          PY
+          curl -sf -X POST "$DISCORD_WEBHOOK" \
+            -H "Content-Type: application/json" \
+            -d "{\"embeds\": [{\"title\": \"$([ \"$STATUS\" = 'success' ] && echo '✅' || echo '❌') $REPO\", \"color\": $([ \"$STATUS\" = 'success' ] && echo '3066993' || echo '15158332'), \"description\": \"$([ \"$STATUS\" != 'success' ] && echo \"$RUN_URL\" || echo '')\"}]}"
