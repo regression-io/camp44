@@ -10,7 +10,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  SERVER_IP: 135.181.102.1
+  SERVER_IP: 77.42.78.16
   DOCKER_IMAGE: ghcr.io/regression-io/camp44
   SERVICE_NAME: camp44-app
 
@@ -56,6 +56,8 @@ jobs:
             ${{ env.DOCKER_IMAGE }}:latest
           cache-from: type=registry,ref=${{ env.DOCKER_IMAGE }}:buildcache
           cache-to: type=registry,ref=${{ env.DOCKER_IMAGE }}:buildcache,mode=max
+          provenance: false
+          sbom: false
 
       - name: Build for local testing
         uses: docker/build-push-action@v5
@@ -179,9 +181,9 @@ jobs:
 
       - name: Health check
         run: |
-          echo "Checking health at https://api.scalemate.me/..."
+          echo "Checking health at https://api.scalemate.regression.io/..."
           for i in {1..30}; do
-            if curl -sf "https://api.scalemate.me/" > /dev/null; then
+            if curl -sf "https://api.scalemate.regression.io/" > /dev/null; then
               echo "✅ Health check passed"
               exit 0
             fi
@@ -193,7 +195,7 @@ jobs:
 
       - name: Verify API response
         run: |
-          response=$(curl -s https://api.scalemate.me/)
+          response=$(curl -s https://api.scalemate.regression.io/)
           echo "API Response: $response"
           if echo "$response" | grep -q "Welcome to Camp44"; then
             echo "✅ API is responding correctly"
@@ -215,7 +217,7 @@ jobs:
           echo "- Build & Test: ${{ needs.build-and-test.result }}" >> $GITHUB_STEP_SUMMARY
           echo "- Deploy: ${{ needs.deploy.result }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "API URL: https://api.scalemate.me" >> $GITHUB_STEP_SUMMARY
+          echo "API URL: https://api.scalemate.regression.io" >> $GITHUB_STEP_SUMMARY
 
       - name: Notify Discord
         if: always()
