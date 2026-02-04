@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 import logging
 import secrets
 import stripe
+import httpx
 
 from camp44 import crud
 from camp44.api import deps
@@ -18,6 +19,60 @@ from camp44.models.user import User, UserCreate
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+async def send_welcome_email(email: str, name: str, setup_url: str) -> bool:
+    """Send welcome email with password setup link via Base44."""
+    if not settings.BASE44_API_KEY or not settings.BASE44_APP_ID:
+        logger.warning("BASE44_API_KEY or BASE44_APP_ID not configured, skipping email")
+        return False
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                f"{settings.BASE44_API_URL}/apps/{settings.BASE44_APP_ID}/integration-endpoints/Core/SendEmail",
+                headers={
+                    "Content-Type": "application/json",
+                    "api_key": settings.BASE44_API_KEY,
+                },
+                json={
+                    "to": email,
+                    "subject": "Welcome to ScaleMate - Set Up Your Account",
+                    "body": f"""
+Hi {name},
+
+Welcome to ScaleMate! Your account has been created and your 7-day free trial has started.
+
+To complete your account setup and log in, please set your password by clicking the link below:
+
+{setup_url}
+
+This link will expire in 7 days.
+
+What's next:
+- Set your password using the link above
+- Log in to your dashboard at https://app.scalemate.regression.io
+- Start exploring ScaleMate's features
+
+If you have any questions, reply to this email or visit https://scalemate.regression.io/contact
+
+Best,
+The ScaleMate Team
+""",
+                    "from_name": "ScaleMate",
+                },
+            )
+
+            if response.status_code == 200:
+                logger.info(f"Welcome email sent to {email}")
+                return True
+            else:
+                logger.error(f"Failed to send welcome email to {email}: {response.text}")
+                return False
+
+    except Exception as e:
+        logger.error(f"Exception sending welcome email to {email}: {e}")
+        return False
 
 # Initialize Stripe
 if settings.STRIPE_SECRET_KEY:
@@ -442,9 +497,9 @@ async def stripe_webhook(request: Request, db: Session = Depends(deps.get_db)):
             db.commit()
             logger.info(f"Created new user {email} from Stripe checkout with reset token")
 
-            # Log the password setup URL (in production, send via email)
+            # Send welcome email with password setup link
             setup_url = f"https://scalemate.regression.io/set-password?token={reset_token}"
-            logger.info(f"Password setup URL for {email}: {setup_url}")
+            await send_welcome_email(email, name, setup_url)
 
             return {"status": "success", "message": "User created", "user_id": str(new_user.id)}
         except Exception as e:
