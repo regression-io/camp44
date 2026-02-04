@@ -29,6 +29,18 @@ def get_by_oidc_sub(session: Session, *, oidc_sub: str) -> Optional[User]:
     return session.exec(statement).first()
 
 
+def get_by_stripe_customer_id(session: Session, *, customer_id: str) -> Optional[User]:
+    """Get a user by Stripe customer ID."""
+    statement = select(User).where(User.stripe_customer_id == customer_id)
+    return session.exec(statement).first()
+
+
+def get_by_password_reset_token(session: Session, *, token: str) -> Optional[User]:
+    """Get a user by password reset token."""
+    statement = select(User).where(User.password_reset_token == token)
+    return session.exec(statement).first()
+
+
 def create_oidc_user(
     session: Session,
     *,

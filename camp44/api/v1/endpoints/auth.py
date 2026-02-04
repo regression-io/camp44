@@ -2,8 +2,9 @@ from fastapi import APIRouter, Depends, HTTPException, status, Request, Response
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi.responses import RedirectResponse, HTMLResponse
 from sqlalchemy.orm import Session
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 from typing import Optional
+from datetime import datetime, timedelta, timezone
 import logging
 import secrets
 import stripe
@@ -60,41 +61,36 @@ async def login_page(
     <!DOCTYPE html>
     <html>
     <head>
-        <title>Login to Cofounder Workshop</title>
+        <title>Login to ScaleMate</title>
         <style>
-            body {{ font-family: Arial, sans-serif; margin: 40px; }}
-            .form-container {{ max-width: 400px; margin: 0 auto; padding: 20px; border: 1px solid #ccc; border-radius: 5px; }}
-            .form-group {{ margin-bottom: 15px; }}
-            label {{ display: block; margin-bottom: 5px; }}
-            input {{ width: 100%; padding: 8px; box-sizing: border-box; }}
-            button {{ padding: 10px 15px; background-color: #4CAF50; color: white; border: none; cursor: pointer; }}
-            .note {{ margin-top: 20px; font-size: 0.9em; color: #666; }}
+            body {{ font-family: Arial, sans-serif; margin: 40px; background: #f5f5f5; }}
+            .form-container {{ max-width: 400px; margin: 0 auto; padding: 30px; border: 1px solid #ddd; border-radius: 8px; background: white; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }}
+            .form-group {{ margin-bottom: 20px; }}
+            label {{ display: block; margin-bottom: 5px; font-weight: 500; }}
+            input {{ width: 100%; padding: 12px; box-sizing: border-box; border: 1px solid #ddd; border-radius: 4px; }}
+            button {{ width: 100%; padding: 12px; background: linear-gradient(to right, #059669, #2563eb); color: white; border: none; cursor: pointer; border-radius: 4px; font-size: 16px; }}
+            button:hover {{ opacity: 0.9; }}
+            .signup-link {{ margin-top: 20px; text-align: center; color: #666; }}
+            .signup-link a {{ color: #059669; }}
         </style>
-        <script>
-            // Immediately store default credentials in the form when the page loads
-            window.onload = function() {{
-                document.getElementById('username').value = 'admin@example.com';
-                document.getElementById('password').value = 'password';
-            }}
-        </script>
     </head>
     <body>
         <div class="form-container">
-            <h2>Login to Cofounder Workshop</h2>
+            <h2 style="text-align: center; margin-bottom: 30px;">Login to ScaleMate</h2>
             <form id="loginForm" action="/login" method="post">
                 <input type="hidden" name="from_url" value="{from_url}">
                 <input type="hidden" name="app_id" value="{app_id}">
                 <div class="form-group">
-                    <label for="username">Email:</label>
-                    <input type="email" id="username" name="username" value="admin@example.com" required>
+                    <label for="username">Email</label>
+                    <input type="email" id="username" name="username" placeholder="you@company.com" required>
                 </div>
                 <div class="form-group">
-                    <label for="password">Password:</label>
-                    <input type="password" id="password" name="password" value="password" required>
+                    <label for="password">Password</label>
+                    <input type="password" id="password" name="password" placeholder="Enter your password" required>
                 </div>
-                <button type="submit">Login</button>
+                <button type="submit">Sign In</button>
             </form>
-            <p class="note"><strong>Default login:</strong> admin@example.com / password</p>
+            <p class="signup-link">Don't have an account? <a href="https://scalemate.regression.io/signup">Start your free trial</a></p>
         </div>
     </body>
     </html>
@@ -358,18 +354,16 @@ async def stripe_webhook(request: Request, db: Session = Depends(deps.get_db)):
         logger.warning("Stripe webhook missing signature header")
         raise HTTPException(status_code=400, detail="Missing signature header")
 
+    # Always require webhook secret - no bypass
+    if not settings.STRIPE_WEBHOOK_SECRET:
+        logger.error("STRIPE_WEBHOOK_SECRET not configured - rejecting webhook")
+        raise HTTPException(status_code=500, detail="Webhook not configured")
+
     # Verify webhook signature
     try:
-        if settings.STRIPE_WEBHOOK_SECRET:
-            event = stripe.Webhook.construct_event(
-                payload, sig_header, settings.STRIPE_WEBHOOK_SECRET
-            )
-        else:
-            # In development, parse without verification
-            import json
-            event = stripe.Event.construct_from(
-                json.loads(payload), stripe.api_key
-            )
+        event = stripe.Webhook.construct_event(
+            payload, sig_header, settings.STRIPE_WEBHOOK_SECRET
+        )
     except ValueError as e:
         logger.error(f"Invalid webhook payload: {e}")
         raise HTTPException(status_code=400, detail="Invalid payload")
@@ -378,30 +372,42 @@ async def stripe_webhook(request: Request, db: Session = Depends(deps.get_db)):
         raise HTTPException(status_code=400, detail="Invalid signature")
 
     event_type = event.type
-    logger.info(f"Processing Stripe webhook: {event_type}")
+    event_id = event.id
+    logger.info(f"Processing Stripe webhook: {event_type} (event_id={event_id})")
 
     # Handle checkout.session.completed - create user account
     if event_type == "checkout.session.completed":
-        session = event.data.object
-        customer_id = session.customer
-        subscription_id = session.subscription
+        session_obj = event.data.object
+        customer_id = session_obj.get("customer")
+        subscription_id = session_obj.get("subscription")
+
+        if not customer_id:
+            logger.error("Webhook checkout.session.completed missing customer_id")
+            raise HTTPException(status_code=400, detail="Missing customer_id")
+
+        # Check idempotency - if user already has this customer_id, skip
+        existing_by_stripe = crud.user.get_by_stripe_customer_id(session=db, customer_id=customer_id)
+        if existing_by_stripe:
+            logger.info(f"Webhook already processed for customer {customer_id}")
+            return {"status": "success", "message": "Already processed"}
 
         # Get customer details from Stripe
         try:
             customer = stripe.Customer.retrieve(customer_id)
         except stripe.StripeError as e:
             logger.error(f"Failed to retrieve Stripe customer {customer_id}: {e}")
-            return {"status": "error", "message": "Failed to retrieve customer"}
+            # Return 500 so Stripe retries
+            raise HTTPException(status_code=500, detail="Failed to retrieve customer")
 
         email = customer.email
         if not email:
             logger.error(f"Stripe customer {customer_id} has no email")
-            return {"status": "error", "message": "Customer has no email"}
+            # Permanent failure - don't retry
+            raise HTTPException(status_code=400, detail="Customer has no email")
 
         name = customer.name or email.split("@")[0]
-        company = customer.metadata.get("company", "") if customer.metadata else ""
 
-        # Check if user already exists
+        # Check if user already exists by email
         existing_user = crud.user.get_user_by_email(session=db, email=email)
         if existing_user:
             # Update existing user with subscription info
@@ -412,8 +418,12 @@ async def stripe_webhook(request: Request, db: Session = Depends(deps.get_db)):
             logger.info(f"Updated existing user {email} with subscription {subscription_id}")
             return {"status": "success", "message": "User updated"}
 
-        # Generate a secure random password
-        temp_password = secrets.token_urlsafe(16)
+        # Generate a password reset token (user will set their own password)
+        reset_token = secrets.token_urlsafe(32)
+        reset_expires = datetime.now(timezone.utc) + timedelta(days=7)  # Token valid for 7 days
+
+        # Generate a random password (user won't use this directly)
+        temp_password = secrets.token_urlsafe(32)
 
         # Create the user
         user_in = UserCreate(
@@ -426,29 +436,173 @@ async def stripe_webhook(request: Request, db: Session = Depends(deps.get_db)):
             new_user = crud.user.create_user(session=db, user_in=user_in)
             new_user.stripe_customer_id = customer_id
             new_user.stripe_subscription_id = subscription_id
+            new_user.password_reset_token = reset_token
+            new_user.password_reset_expires = reset_expires
             db.add(new_user)
             db.commit()
-            logger.info(f"Created new user {email} from Stripe checkout")
+            logger.info(f"Created new user {email} from Stripe checkout with reset token")
 
-            # TODO: Send welcome email with password reset link
-            # For now, log the temp password (remove in production!)
-            logger.info(f"User {email} created with temp password (send reset email)")
+            # Log the password setup URL (in production, send via email)
+            setup_url = f"https://scalemate.regression.io/set-password?token={reset_token}"
+            logger.info(f"Password setup URL for {email}: {setup_url}")
 
             return {"status": "success", "message": "User created", "user_id": str(new_user.id)}
         except Exception as e:
             logger.error(f"Failed to create user {email}: {e}")
             db.rollback()
-            return {"status": "error", "message": str(e)}
+            # Return 500 so Stripe retries
+            raise HTTPException(status_code=500, detail="Failed to create user")
 
-    # Handle subscription deleted
+    # Handle subscription deleted - deactivate user
     elif event_type == "customer.subscription.deleted":
-        subscription = event.data.object
-        customer_id = subscription.customer
+        subscription_obj = event.data.object
+        customer_id = subscription_obj.get("customer")
+
+        if not customer_id:
+            logger.warning("Subscription deleted event missing customer_id")
+            return {"status": "success", "message": "No customer_id"}
 
         # Find user by stripe_customer_id and deactivate
-        # This would require a query by stripe_customer_id
-        logger.info(f"Subscription {subscription.id} deleted for customer {customer_id}")
-        return {"status": "success", "message": "Subscription cancellation noted"}
+        user = crud.user.get_by_stripe_customer_id(session=db, customer_id=customer_id)
+        if user:
+            user.is_active = False
+            user.stripe_subscription_id = None
+            db.add(user)
+            db.commit()
+            logger.info(f"Deactivated user {user.email} due to subscription cancellation")
+            return {"status": "success", "message": "User deactivated"}
+        else:
+            logger.warning(f"No user found for cancelled subscription customer {customer_id}")
+            return {"status": "success", "message": "User not found"}
 
     # Return success for unhandled events
     return {"status": "success", "message": f"Unhandled event type: {event_type}"}
+
+
+class SetPasswordRequest(BaseModel):
+    """Request body for setting password with reset token."""
+    token: str
+    password: str = Field(min_length=8)
+
+
+class SetPasswordResponse(BaseModel):
+    """Response after setting password."""
+    success: bool
+    message: str
+
+
+class SetupLinkRequest(BaseModel):
+    """Request body for getting password setup link from checkout session."""
+    session_id: str
+
+
+class SetupLinkResponse(BaseModel):
+    """Response with password setup information."""
+    success: bool
+    setup_url: Optional[str] = None
+    email: Optional[str] = None
+    message: str
+
+
+@router.post("/get-setup-link", response_model=SetupLinkResponse)
+def get_setup_link(
+    *,
+    db: Session = Depends(deps.get_db),
+    request: SetupLinkRequest,
+) -> SetupLinkResponse:
+    """
+    Get the password setup link for a user created from a Stripe checkout session.
+
+    This is called from the Success page after checkout completes.
+    The session_id provides proof of payment, so we can safely return the setup link.
+    """
+    if not settings.STRIPE_SECRET_KEY:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Stripe is not configured",
+        )
+
+    try:
+        # Retrieve the checkout session from Stripe
+        session_obj = stripe.checkout.Session.retrieve(request.session_id)
+    except stripe.InvalidRequestError:
+        return SetupLinkResponse(
+            success=False,
+            message="Invalid session ID",
+        )
+    except stripe.StripeError as e:
+        logger.error(f"Stripe error retrieving session: {e}")
+        return SetupLinkResponse(
+            success=False,
+            message="Unable to verify session",
+        )
+
+    customer_id = session_obj.get("customer")
+    if not customer_id:
+        return SetupLinkResponse(
+            success=False,
+            message="Session has no customer",
+        )
+
+    # Find user by stripe_customer_id
+    user = crud.user.get_by_stripe_customer_id(session=db, customer_id=customer_id)
+    if not user:
+        # User might not be created yet if webhook hasn't fired
+        return SetupLinkResponse(
+            success=False,
+            message="Account is being set up. Please wait a moment and try again.",
+        )
+
+    # Check if user already has a password set (no reset token)
+    if not user.password_reset_token:
+        return SetupLinkResponse(
+            success=True,
+            email=user.email,
+            message="Password already set. Please log in.",
+        )
+
+    # Return the setup URL
+    setup_url = f"https://app.scalemate.regression.io/set-password?token={user.password_reset_token}"
+    return SetupLinkResponse(
+        success=True,
+        setup_url=setup_url,
+        email=user.email,
+        message="Ready to set password",
+    )
+
+
+@router.post("/set-password", response_model=SetPasswordResponse)
+def set_password(
+    *,
+    db: Session = Depends(deps.get_db),
+    request: SetPasswordRequest,
+) -> SetPasswordResponse:
+    """
+    Set password using a reset token.
+
+    This is used after Stripe checkout to allow users to set their password.
+    """
+    # Find user by reset token
+    user = crud.user.get_by_password_reset_token(session=db, token=request.token)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired reset token",
+        )
+
+    # Check if token is expired
+    if user.password_reset_expires and user.password_reset_expires < datetime.now(timezone.utc):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Reset token has expired",
+        )
+
+    # Update password and clear reset token
+    user.hashed_password = get_password_hash(request.password)
+    user.password_reset_token = None
+    user.password_reset_expires = None
+    db.add(user)
+    db.commit()
+
+    logger.info(f"Password set for user {user.email}")
+    return SetPasswordResponse(success=True, message="Password set successfully")
