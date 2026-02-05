@@ -3,7 +3,7 @@ from sqlmodel import create_engine, Session, SQLModel
 from camp44.core.config import settings
 
 # The database URL is taken from the settings object
-engine = create_engine(settings.DATABASE_URL, echo=True)
+engine = create_engine(settings.DATABASE_URL, echo=False)
 
 
 def get_session():

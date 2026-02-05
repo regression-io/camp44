@@ -5,11 +5,9 @@ from passlib.context import CryptContext
 
 from camp44.core.config import settings
 
-# Update to use a combination of bcrypt and sha256_crypt for better compatibility
-# bcrypt alone is having issues with newer versions of the library
-pwd_context = CryptContext(schemes=["bcrypt", "sha256_crypt"], deprecated="auto")
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-ALGORITHM = "HS256"
+ALGORITHM = settings.ALGORITHM
 
 
 def create_access_token(data: dict, expires_delta: timedelta | None = None):
@@ -23,7 +21,7 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None):
         )
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(
-        to_encode, settings.JWT_SECRET_KEY, algorithm=ALGORITHM
+        to_encode, settings.JWT_SECRET_KEY, algorithm=settings.ALGORITHM
     )
     return encoded_jwt
 

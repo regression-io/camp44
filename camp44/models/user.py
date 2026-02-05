@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Dict, List, Optional
 
 from sqlalchemy import Column
@@ -51,8 +51,8 @@ class User(SQLModel, table=True):
     password_reset_expires: Optional[datetime] = Field(default=None)
     is_active: bool = Field(default=True)
     roles: List[str] = Field(default=[], sa_column=Column(JSON))
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow, sa_column_kwargs={"onupdate": datetime.utcnow})
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), sa_column_kwargs={"onupdate": lambda: datetime.now(timezone.utc)})
 
     # OIDC fields
     oidc_sub: Optional[str] = Field(default=None, index=True)  # Subject identifier from OIDC

@@ -85,6 +85,8 @@ def authenticate(
     db_user = get_user_by_email(session=session, email=email)
     if not db_user:
         return None
+    if not db_user.hashed_password:
+        return None
     if not verify_password(password, db_user.hashed_password):
         return None
     return db_user
@@ -102,6 +104,28 @@ def update_user(
 
     db_user.sqlmodel_update(user_data)
     session.add(db_user)
-    session.flush()
+    session.commit()
     session.refresh(db_user)
     return db_user
+
+
+def update(session: Session, *, db_obj: User, obj_in: dict) -> User:
+    """Update a user from a dictionary (used by passkey flows)."""
+    db_obj.sqlmodel_update(obj_in)
+    session.add(db_obj)
+    session.commit()
+    session.refresh(db_obj)
+    return db_obj
+
+
+def get_users_with_passkey(session: Session, *, credential_id: str) -> list[User]:
+    """Find users that have a specific passkey credential ID registered."""
+    all_users = session.exec(select(User)).all()
+    matched = []
+    for u in all_users:
+        if u.passkey_credentials:
+            for cred in u.passkey_credentials:
+                if cred.get("id") == credential_id:
+                    matched.append(u)
+                    break
+    return matched

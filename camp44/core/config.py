@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     MINIO_URL: str = "localhost:9000"
     MINIO_ACCESS_KEY: str = "minio"
     MINIO_SECRET_KEY: str = "minio123"
-    JWT_SECRET_KEY: str = "test_secret"
+    JWT_SECRET_KEY: str = "test_secret"  # Override via JWT_SECRET_KEY env var in production
     JWT_ALGORITHM: str = "HS256"
     RABBITMQ_URL: str = "amqp://guest:guest@localhost:5672/"
 

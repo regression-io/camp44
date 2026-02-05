@@ -1,3 +1,4 @@
+import re
 import uuid
 from typing import Any, Dict, List, Optional, Union
 
@@ -6,12 +7,15 @@ from sqlmodel import Session, select
 from camp44.models.app import App
 from camp44.models.entity import Entity, EntityCreate, EntityUpdate
 
+# Only allow safe characters in JSON filter keys (prevents SQL injection)
+_SAFE_KEY_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
+
 
 def create_entity(*, session: Session, entity_in: EntityCreate, app: App) -> Entity:
     """Create a new entity."""
     db_obj = Entity.model_validate(entity_in, update={"app_id": app.id})
     session.add(db_obj)
-    session.flush()
+    session.commit()
     session.refresh(db_obj)
     return db_obj
 
@@ -49,19 +53,20 @@ def filter_entities(
     )
     
     # Apply JSON path filters using SQLAlchemy's text() for PostgreSQL
-    for key, value in filters.items():
+    for idx, (key, value) in enumerate(filters.items()):
+        # Validate key to prevent SQL injection (keys are interpolated into SQL)
+        if not _SAFE_KEY_RE.match(key):
+            continue
+        param_name = f"fval_{idx}"
         if isinstance(value, str):
-            # For string values, use -> operator and cast the result to text
             statement = statement.where(
-                text(f"data->>'{key}' = :value").bindparams(value=value)
+                text(f"data->>'{key}' = :{param_name}").bindparams(**{param_name: value})
             )
         elif isinstance(value, (int, float, bool)):
-            # For numeric/boolean values, handle appropriately
             statement = statement.where(
-                text(f"(data->>'{key}')::text = :value").bindparams(value=str(value))
+                text(f"(data->>'{key}')::text = :{param_name}").bindparams(**{param_name: str(value)})
             )
         else:
-            # Skip complex objects
             continue
 
     statement = statement.offset(skip).limit(limit)
@@ -75,7 +80,7 @@ def update_entity(
     update_data = obj_in.model_dump(exclude_unset=True)
     db_obj.sqlmodel_update(update_data)
     session.add(db_obj)
-    session.flush()
+    session.commit()
     session.refresh(db_obj)
     return db_obj
 
@@ -83,4 +88,4 @@ def update_entity(
 def delete_entity(session: Session, *, db_obj: Entity) -> None:
     """Delete an entity."""
     session.delete(db_obj)
-    session.flush()
+    session.commit()

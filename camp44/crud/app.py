@@ -12,7 +12,7 @@ def create_app(*, session: Session, app_in: AppCreate, owner: User) -> App:
     """Create a new app."""
     db_obj = App.model_validate(app_in, update={"owner_id": owner.id})
     session.add(db_obj)
-    session.flush()
+    session.commit()
     session.refresh(db_obj)
     return db_obj
 

@@ -45,7 +45,13 @@ if settings.OAUTH_ENABLED:
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, you should restrict this to your frontend's domain
+    allow_origins=[
+        "https://app.scalemate.regression.io",
+        "https://gtm.scalemate.regression.io",
+        "https://scalemate.regression.io",
+        "http://localhost:5173",
+        "http://localhost:3000",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -106,30 +112,23 @@ async def handle_login(request: Request):
     """
     Handle POST requests to /login and forward them to the auth handler.
     """
-    # Import the login handler from auth endpoints
     from camp44.api.v1.endpoints.auth import login
     from fastapi.security import OAuth2PasswordRequestForm
-    from fastapi import Form, Depends
-    from sqlalchemy.orm import Session
     from camp44.api import deps
-    
-    # Get the form data
+    from camp44.db.session import engine
+    from sqlmodel import Session
+
     form_data = await request.form()
-    
-    # Extract the parameters
+
     username = form_data.get("username", "")
     password = form_data.get("password", "")
     from_url = form_data.get("from_url", None)
     app_id = form_data.get("app_id", None)
-    
-    # Create a standard OAuth2PasswordRequestForm compatible with the login handler
+
     oauth_form = OAuth2PasswordRequestForm(username=username, password=password, scope="")
-    
-    # Get the database session
-    db = next(deps.get_db())
-    
-    # Call the login handler with the form data
-    return login(db=db, form_data=oauth_form, from_url=from_url, app_id=app_id, request=request)
+
+    with Session(engine) as db:
+        return login(db=db, form_data=oauth_form, from_url=from_url, app_id=app_id, request=request)
 
 
 @app.get("/")

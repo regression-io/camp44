@@ -10,12 +10,36 @@ import secrets
 import stripe
 import httpx
 
+from urllib.parse import urlparse
+
 from camp44 import crud
 from camp44.api import deps
 from camp44.core.security import create_access_token, get_password_hash
 from camp44.core.config import settings
 from camp44.models.token import Token
-from camp44.models.user import User, UserCreate
+from camp44.models.user import User, UserCreate, UserRead
+
+_ALLOWED_REDIRECT_HOSTS = {
+    "app.scalemate.regression.io",
+    "gtm.scalemate.regression.io",
+    "scalemate.regression.io",
+    "localhost",
+}
+
+
+def _sanitize_redirect_url(url: str | None) -> str | None:
+    """Validate redirect URL to prevent open redirect / XSS."""
+    if not url:
+        return None
+    try:
+        parsed = urlparse(url)
+        if parsed.hostname and parsed.hostname not in _ALLOWED_REDIRECT_HOSTS:
+            return None
+        if parsed.scheme and parsed.scheme not in ("http", "https"):
+            return None
+        return url
+    except Exception:
+        return None
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -161,11 +185,7 @@ def login(
         request: Request = None,
 ) -> Token:
     """Logs a user in."""
-    logger.info(f"POST /login request with username={form_data.username}, from_url={from_url}, app_id={app_id}")
-    
-    # Debug request headers and cookies if available
-    if request:
-        logger.info(f"Headers: {dict(request.headers)}")
+    logger.info(f"POST /login request for username={form_data.username}")
     
     user = crud.user.authenticate(
         session=db, email=form_data.username, password=form_data.password
@@ -182,10 +202,8 @@ def login(
     logger.info(f"Authentication successful for {form_data.username}")
     access_token = create_access_token(data={"sub": str(user.id)})
     
-    # Instead of simple redirect, create a special page that will:
-    # 1. Set localStorage.token for JS libraries that expect it there
-    # 2. Set cookies for API calls
-    # 3. Redirect to the original URL
+    # Sanitize from_url to prevent open redirect / XSS
+    from_url = _sanitize_redirect_url(from_url)
     if from_url:
         logger.info(f"Creating JS-enhanced redirect page to {from_url}")
         
@@ -199,6 +217,7 @@ def login(
                 localStorage.setItem('token', '{access_token}');
                 localStorage.setItem('access_token', '{access_token}');
                 localStorage.setItem('auth_token', '{access_token}');
+                localStorage.setItem('base44_access_token', '{access_token}');
                 
                 // Also store in sessionStorage
                 sessionStorage.setItem('token', '{access_token}');
@@ -261,7 +280,7 @@ def login(
     logger.info(f"Returning token for {form_data.username} without redirect")
     return Token(access_token=access_token, token_type="bearer")
 
-@router.post("/register", response_model=User)
+@router.post("/register", response_model=UserRead)
 def register(
         *, db: Session = Depends(deps.get_db), user_in: UserCreate
 ) -> User:

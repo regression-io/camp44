@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from sqlalchemy import Column
@@ -16,9 +16,10 @@ class Entity(SQLModel, table=True):
     data: Dict[str, Any] = Field(default={}, sa_column=Column(JSON))
     app_id: uuid.UUID = Field(foreign_key="app.id")
     app: "App" = Relationship(back_populates="entities")
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(
-        default_factory=datetime.utcnow, sa_column_kwargs={"onupdate": datetime.utcnow}
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column_kwargs={"onupdate": lambda: datetime.now(timezone.utc)},
     )
 
 
