@@ -7,7 +7,7 @@ from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 
 from camp44.api.v1 import oidc, passkey
 from camp44.api.v1.endpoints import auth, users, apps, entities, bulk, integrations, functions, metering, base44_proxy, admin, demo_booking
-from camp44.core.config import settings
+from camp44.core.config import settings, validate_production_settings
 from camp44.core.errors import http_exception_handler, generic_exception_handler
 from camp44.core.middleware import SecurityHeadersMiddleware
 from camp44.core.tracing import setup_tracer
@@ -21,6 +21,7 @@ apply_bcrypt_patch()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    validate_production_settings()
     print("Creating tables..")
     create_db_and_tables()
     seed_initial_data()

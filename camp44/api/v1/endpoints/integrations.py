@@ -1,3 +1,5 @@
+import os
+import uuid as uuid_mod
 from typing import Any, Dict
 
 from fastapi import APIRouter, Depends, File, UploadFile, HTTPException
@@ -6,6 +8,8 @@ from sqlalchemy.orm import Session
 from camp44.api import deps
 from camp44.core.s3 import get_minio_client
 from camp44.models.app import App
+
+MAX_UPLOAD_SIZE = 50 * 1024 * 1024  # 50 MB
 
 router = APIRouter()
 
@@ -68,17 +72,24 @@ def upload_file(
     if not found:
         minio_client.make_bucket(bucket_name)
 
-    # Read file contents
+    # Read file contents with size limit
     file_contents = file.file.read()
-    file.file.seek(0)  # Reset file position to beginning after reading
+    if len(file_contents) > MAX_UPLOAD_SIZE:
+        raise HTTPException(status_code=413, detail="File too large. Maximum size is 50 MB.")
+    file.file.seek(0)
+
+    # Sanitize filename to prevent path traversal
+    raw_name = file.filename or "unnamed"
+    safe_name = os.path.basename(raw_name).replace("\x00", "")
+    safe_name = f"{uuid_mod.uuid4().hex[:8]}_{safe_name}"
 
     # Upload to MinIO
     minio_client.put_object(
         bucket_name,
-        file.filename,
+        safe_name,
         data=file.file,
         length=len(file_contents),
         content_type=file.content_type
     )
 
-    return {"filename": file.filename, "content_type": file.content_type, "size": len(file_contents)}
+    return {"filename": safe_name, "content_type": file.content_type, "size": len(file_contents)}

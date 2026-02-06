@@ -30,7 +30,10 @@ async def oidc_login(request: Request):
     # Store the frontend callback URL in session for use after OIDC callback
     from_url = request.query_params.get('from_url')
     if from_url:
-        request.session['oidc_from_url'] = from_url
+        from camp44.api.v1.endpoints.auth import _sanitize_redirect_url
+        from_url = _sanitize_redirect_url(from_url)
+        if from_url:
+            request.session['oidc_from_url'] = from_url
 
     # Redirect to OIDC provider's authorization endpoint
     redirect_uri = request.url_for('oidc_callback')
@@ -118,11 +121,12 @@ async def oidc_callback(
         )
 
     except Exception as e:
-        # Log the error
-        print(f"OIDC Callback error: {str(e)}")
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error("OIDC Callback error: %s", e, exc_info=True)
         return JSONResponse(
             status_code=status.HTTP_400_BAD_REQUEST,
-            content={"detail": f"Failed to authenticate: {str(e)}"}
+            content={"detail": "Authentication failed. Please try again."}
         )
 
 

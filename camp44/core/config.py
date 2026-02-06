@@ -56,3 +56,29 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+_INSECURE_JWT_SECRETS = {"test_secret", "dev-secret-change-in-production", "secret", "changeme", ""}
+
+
+def validate_production_settings():
+    """Refuse to start with insecure defaults in production."""
+    import warnings
+
+    is_dev = settings.DATABASE_URL.startswith("sqlite")
+    if settings.JWT_SECRET_KEY in _INSECURE_JWT_SECRETS:
+        if is_dev:
+            warnings.warn(
+                "JWT_SECRET_KEY is using an insecure default. "
+                "Set it in .env for production.",
+                stacklevel=2,
+            )
+        else:
+            raise RuntimeError(
+                "FATAL: JWT_SECRET_KEY is set to an insecure default. "
+                "Set a strong, unique JWT_SECRET_KEY in your .env file."
+            )
+    if not is_dev and settings.FIRST_SUPERUSER_PASSWORD == "password":
+        raise RuntimeError(
+            "FATAL: FIRST_SUPERUSER_PASSWORD is 'password'. "
+            "Set a strong password in your .env file."
+        )

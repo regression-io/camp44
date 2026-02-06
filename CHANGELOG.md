@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Security
+- **JWT secret startup validation**: App refuses to start in production with insecure default JWT_SECRET_KEY; warns in dev/SQLite mode
+- **Superuser seeding guard**: Skips creating default `admin@example.com`/`password` superuser when credentials are still defaults
+- **OIDC from_url open redirect**: `from_url` parameter now validated via `_sanitize_redirect_url` before storing in session
+- **OIDC callback error info leak**: Internal error details no longer returned to client; logged server-side instead
+- **File upload hardening**: Added 50MB size limit and filename sanitization (path traversal prevention + UUID prefix) to `Core.UploadFile`
 - **SQL injection fix in entity filter**: Filter keys are now validated against `^[a-zA-Z_][a-zA-Z0-9_]*$` regex; parameterized bind names prevent collision
 - **Registration response_model leak**: Changed `response_model=User` to `response_model=UserRead` on register endpoint to prevent leaking `hashed_password`
 - **XSS in login redirect**: Added `_sanitize_redirect_url()` with allowlisted hosts for `from_url` parameter
