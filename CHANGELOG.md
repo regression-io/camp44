@@ -19,6 +19,7 @@ All notable changes to this project will be documented in this file.
 - **DB session leak**: Fixed `next(deps.get_db())` in POST `/login` — generator cleanup never ran; replaced with `with Session(engine)` context manager
 
 ### Fixed
+- **Demo booking data loss**: Demo bookings and availability config were stored in-memory module variables — all data lost on every restart. Migrated to persistent `DemoBooking` and `DemoAvailabilityConfig` database tables with proper SQLModel models
 - **commit/flush in CRUD**: Changed `session.flush()` to `session.commit()` in all CRUD operations (user, app, entity). Previously, `close()` would roll back uncommitted changes
 - **Passkey auth guard**: `authenticate()` now returns `None` for OIDC-only users with no `hashed_password` instead of crashing
 - **Missing CRUD functions**: Added `update()` and `get_users_with_passkey()` to `crud/user.py` (required by passkey flows)

@@ -1,6 +1,7 @@
 """Demo booking endpoints.
 
 Allows users to book demo calls and admins to manage availability.
+All state is persisted in the database (DemoBooking + DemoAvailabilityConfig tables).
 """
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
@@ -9,10 +10,11 @@ import httpx
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, EmailStr, Field
-from sqlalchemy.orm import Session
+from sqlmodel import Session, select
 
 from camp44.api import deps
 from camp44.core.config import settings
+from camp44.models.demo_booking import DemoAvailabilityConfig, DemoBooking
 from camp44.models.user import User
 
 router = APIRouter()
@@ -30,18 +32,39 @@ DEFAULT_AVAILABILITY = {
         "friday": {"start": "09:00", "end": "17:00"},
     },
     "slot_duration_minutes": 30,
-    "buffer_minutes": 15,  # Buffer between slots
-    "advance_days": 14,  # How far ahead users can book
-    "blocked_dates": [],  # Dates to block (ISO format)
+    "buffer_minutes": 15,
+    "advance_days": 14,
+    "blocked_dates": [],
 }
 
-# In-memory storage for availability config (in production, use database)
-# This could be moved to an Entity or dedicated table
-_availability_config = DEFAULT_AVAILABILITY.copy()
-_booked_slots: List[str] = []  # List of booked datetime ISO strings
+
+def _get_availability_config(db: Session) -> dict:
+    """Load availability config from DB, or return defaults if not yet stored."""
+    row = db.get(DemoAvailabilityConfig, 1)
+    if row and row.config:
+        return row.config
+    return DEFAULT_AVAILABILITY.copy()
 
 
-class AvailabilityConfig(BaseModel):
+def _save_availability_config(db: Session, config: dict) -> None:
+    """Upsert the single-row availability config."""
+    row = db.get(DemoAvailabilityConfig, 1)
+    if row:
+        row.config = config
+        row.updated_at = datetime.now(timezone.utc)
+    else:
+        row = DemoAvailabilityConfig(id=1, config=config)
+    db.add(row)
+    db.commit()
+
+
+def _get_booked_slots(db: Session) -> set[str]:
+    """Return set of booked slot_datetime strings."""
+    results = db.exec(select(DemoBooking.slot_datetime)).all()
+    return set(results)
+
+
+class AvailabilityConfigSchema(BaseModel):
     """Configuration for demo availability."""
     timezone: str = "America/New_York"
     weekly_schedule: dict = Field(default_factory=dict)
@@ -53,10 +76,10 @@ class AvailabilityConfig(BaseModel):
 
 class TimeSlot(BaseModel):
     """A single available time slot."""
-    datetime_utc: str  # ISO format
-    datetime_local: str  # Display format
-    date: str  # YYYY-MM-DD
-    time: str  # HH:MM
+    datetime_utc: str
+    datetime_local: str
+    date: str
+    time: str
     available: bool = True
 
 
@@ -73,7 +96,7 @@ class BookDemoRequest(BaseModel):
     email: EmailStr
     company: Optional[str] = None
     phone: Optional[str] = None
-    slot_datetime: str  # ISO format datetime
+    slot_datetime: str
     message: Optional[str] = None
 
 
@@ -84,7 +107,9 @@ class BookDemoResponse(BaseModel):
     booking_datetime: Optional[str] = None
 
 
-def generate_time_slots(config: dict, start_date: datetime, days: int) -> List[TimeSlot]:
+def generate_time_slots(
+    config: dict, start_date: datetime, days: int, booked_slots: set[str]
+) -> List[TimeSlot]:
     """Generate available time slots based on configuration."""
     slots = []
     day_names = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
@@ -97,13 +122,11 @@ def generate_time_slots(config: dict, start_date: datetime, days: int) -> List[T
         day_schedule = config.get("weekly_schedule", {}).get(day_name)
 
         if day_schedule:
-            # Check if date is blocked
             date_str = current.strftime("%Y-%m-%d")
             if date_str in config.get("blocked_dates", []):
                 current += timedelta(days=1)
                 continue
 
-            # Parse start and end times
             start_hour, start_min = map(int, day_schedule["start"].split(":"))
             end_hour, end_min = map(int, day_schedule["end"].split(":"))
 
@@ -114,10 +137,9 @@ def generate_time_slots(config: dict, start_date: datetime, days: int) -> List[T
             buffer = config.get("buffer_minutes", 15)
 
             while slot_time < end_time:
-                # Check if slot is in the past
                 if slot_time > datetime.now(timezone.utc).replace(tzinfo=None):
                     slot_iso = slot_time.isoformat() + "Z"
-                    is_available = slot_iso not in _booked_slots
+                    is_available = slot_iso not in booked_slots
 
                     slots.append(TimeSlot(
                         datetime_utc=slot_iso,
@@ -135,55 +157,62 @@ def generate_time_slots(config: dict, start_date: datetime, days: int) -> List[T
 
 
 @router.get("/slots", response_model=AvailableSlotsResponse)
-def get_available_slots() -> AvailableSlotsResponse:
-    """
-    Get available demo time slots for the next N days.
+def get_available_slots(
+    db: Session = Depends(deps.get_db),
+) -> AvailableSlotsResponse:
+    """Get available demo time slots for the next N days."""
+    config = _get_availability_config(db)
+    booked = _get_booked_slots(db)
 
-    Returns slots based on the configured weekly schedule,
-    excluding blocked dates and already booked slots.
-    """
     now = datetime.now(timezone.utc).replace(tzinfo=None)
-    # Start from tomorrow
     start_date = now + timedelta(days=1)
 
     slots = generate_time_slots(
-        _availability_config,
-        start_date,
-        _availability_config.get("advance_days", 14)
+        config, start_date, config.get("advance_days", 14), booked
     )
 
     return AvailableSlotsResponse(
         slots=slots,
-        timezone=_availability_config.get("timezone", "America/New_York"),
-        slot_duration_minutes=_availability_config.get("slot_duration_minutes", 30),
+        timezone=config.get("timezone", "America/New_York"),
+        slot_duration_minutes=config.get("slot_duration_minutes", 30),
     )
 
 
 @router.post("/book", response_model=BookDemoResponse)
-async def book_demo(request: BookDemoRequest) -> BookDemoResponse:
-    """
-    Book a demo slot and send confirmation emails.
-
-    Sends email to sales@regression.io with booking details.
-    """
-    # Validate slot is available
-    if request.slot_datetime in _booked_slots:
+async def book_demo(
+    request: BookDemoRequest,
+    db: Session = Depends(deps.get_db),
+) -> BookDemoResponse:
+    """Book a demo slot and send confirmation email."""
+    # Check if slot is already booked
+    existing = db.exec(
+        select(DemoBooking).where(DemoBooking.slot_datetime == request.slot_datetime)
+    ).first()
+    if existing:
         raise HTTPException(
             status_code=400,
             detail="This time slot is no longer available. Please choose another."
         )
 
-    # Parse the datetime for display
     try:
         slot_dt = datetime.fromisoformat(request.slot_datetime.replace("Z", "+00:00"))
         display_time = slot_dt.strftime("%B %d, %Y at %I:%M %p UTC")
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid datetime format")
 
-    # Mark slot as booked
-    _booked_slots.append(request.slot_datetime)
+    # Persist booking
+    booking = DemoBooking(
+        name=request.name,
+        email=request.email,
+        company=request.company,
+        phone=request.phone,
+        slot_datetime=request.slot_datetime,
+        message=request.message,
+    )
+    db.add(booking)
+    db.commit()
 
-    # Send email notification to sales via Base44
+    # Send email notification (best-effort)
     email_sent = await send_demo_booking_email(
         name=request.name,
         email=request.email,
@@ -192,10 +221,8 @@ async def book_demo(request: BookDemoRequest) -> BookDemoResponse:
         slot_datetime=display_time,
         message=request.message,
     )
-
     if not email_sent:
-        logger.warning(f"Failed to send demo booking email for {request.email}")
-        # Still return success - booking is recorded
+        logger.warning("Failed to send demo booking email for %s", request.email)
 
     return BookDemoResponse(
         success=True,
@@ -217,7 +244,6 @@ async def send_demo_booking_email(
         logger.warning("BASE44 credentials not configured, skipping email")
         return False
 
-    # Build email body
     body = f"""New Demo Booking Request
 
 Name: {name}
@@ -247,84 +273,88 @@ Add a calendar invite and send confirmation to the customer.
                     "subject": f"Demo Request: {name} from {company or 'Unknown Company'} - {slot_datetime}",
                     "body": body,
                     "from_name": "ScaleMate Demo Booking",
-                    "reply_to": email,  # So replies go to the customer
+                    "reply_to": email,
                 },
             )
 
             if response.status_code == 200:
-                logger.info(f"Demo booking email sent for {email}")
+                logger.info("Demo booking email sent for %s", email)
                 return True
             else:
-                logger.error(f"Failed to send demo booking email: {response.text}")
+                logger.error("Failed to send demo booking email: %s", response.text)
                 return False
 
     except Exception as e:
-        logger.error(f"Exception sending demo booking email: {e}")
+        logger.error("Exception sending demo booking email: %s", e)
         return False
 
 
-# Admin endpoints for managing availability
-@router.get("/admin/config", response_model=AvailabilityConfig)
-def get_availability_config(
+# Admin endpoints
+@router.get("/admin/config", response_model=AvailabilityConfigSchema)
+def get_admin_config(
+    db: Session = Depends(deps.get_db),
     current_user: User = Depends(deps.get_current_active_user),
-) -> AvailabilityConfig:
+) -> AvailabilityConfigSchema:
     """Get current availability configuration (admin only)."""
-    # Check if user is admin (has admin role)
     if "admin" not in (current_user.roles or []):
         raise HTTPException(status_code=403, detail="Admin access required")
+    config = _get_availability_config(db)
+    return AvailabilityConfigSchema(**config)
 
-    return AvailabilityConfig(**_availability_config)
 
-
-@router.put("/admin/config", response_model=AvailabilityConfig)
-def update_availability_config(
-    config: AvailabilityConfig,
+@router.put("/admin/config", response_model=AvailabilityConfigSchema)
+def update_admin_config(
+    config: AvailabilityConfigSchema,
+    db: Session = Depends(deps.get_db),
     current_user: User = Depends(deps.get_current_active_user),
-) -> AvailabilityConfig:
+) -> AvailabilityConfigSchema:
     """Update availability configuration (admin only)."""
     if "admin" not in (current_user.roles or []):
         raise HTTPException(status_code=403, detail="Admin access required")
-
-    global _availability_config
-    _availability_config = config.model_dump()
-    logger.info(f"Availability config updated by {current_user.email}")
-
+    _save_availability_config(db, config.model_dump())
+    logger.info("Availability config updated by %s", current_user.email)
     return config
 
 
 @router.post("/admin/block-date")
 def block_date(
-    date: str,  # YYYY-MM-DD format
+    date: str,
+    db: Session = Depends(deps.get_db),
     current_user: User = Depends(deps.get_current_active_user),
 ) -> dict:
     """Block a specific date from booking (admin only)."""
     if "admin" not in (current_user.roles or []):
         raise HTTPException(status_code=403, detail="Admin access required")
-
-    # Validate date format
     try:
         datetime.strptime(date, "%Y-%m-%d")
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
 
-    if date not in _availability_config["blocked_dates"]:
-        _availability_config["blocked_dates"].append(date)
-        logger.info(f"Date {date} blocked by {current_user.email}")
+    config = _get_availability_config(db)
+    if date not in config.get("blocked_dates", []):
+        config.setdefault("blocked_dates", []).append(date)
+        _save_availability_config(db, config)
+        logger.info("Date %s blocked by %s", date, current_user.email)
 
-    return {"success": True, "blocked_dates": _availability_config["blocked_dates"]}
+    return {"success": True, "blocked_dates": config.get("blocked_dates", [])}
 
 
 @router.delete("/admin/block-date")
 def unblock_date(
     date: str,
+    db: Session = Depends(deps.get_db),
     current_user: User = Depends(deps.get_current_active_user),
 ) -> dict:
     """Unblock a specific date (admin only)."""
     if "admin" not in (current_user.roles or []):
         raise HTTPException(status_code=403, detail="Admin access required")
 
-    if date in _availability_config["blocked_dates"]:
-        _availability_config["blocked_dates"].remove(date)
-        logger.info(f"Date {date} unblocked by {current_user.email}")
+    config = _get_availability_config(db)
+    blocked = config.get("blocked_dates", [])
+    if date in blocked:
+        blocked.remove(date)
+        config["blocked_dates"] = blocked
+        _save_availability_config(db, config)
+        logger.info("Date %s unblocked by %s", date, current_user.email)
 
-    return {"success": True, "blocked_dates": _availability_config["blocked_dates"]}
+    return {"success": True, "blocked_dates": config.get("blocked_dates", [])}
