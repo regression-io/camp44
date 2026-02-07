@@ -50,6 +50,7 @@ class User(SQLModel, table=True):
     password_reset_token: Optional[str] = Field(default=None, index=True)
     password_reset_expires: Optional[datetime] = Field(default=None)
     is_active: bool = Field(default=True)
+    token_version: int = Field(default=0)
     roles: List[str] = Field(default=[], sa_column=Column(JSON))
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), sa_column_kwargs={"onupdate": lambda: datetime.now(timezone.utc)})

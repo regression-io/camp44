@@ -14,8 +14,10 @@ from urllib.parse import urlparse
 
 from camp44 import crud
 from camp44.api import deps
-from camp44.core.security import create_access_token, get_password_hash
+from camp44.core.auth_tokens import create_token_pair
+from camp44.core.security import get_password_hash
 from camp44.core.config import settings
+from camp44.crud import refresh_token as rt_crud
 from camp44.models.token import Token
 from camp44.models.user import User, UserCreate, UserRead
 
@@ -200,33 +202,36 @@ def login(
         )
         
     logger.info(f"Authentication successful for {form_data.username}")
-    access_token = create_access_token(data={"sub": str(user.id)})
-    
+    token_pair = create_token_pair(db, user)
+    access_token = token_pair.access_token
+    refresh_token = token_pair.refresh_token
+
     # Sanitize from_url to prevent open redirect / XSS
     from_url = _sanitize_redirect_url(from_url)
     if from_url:
         logger.info(f"Creating JS-enhanced redirect page to {from_url}")
-        
+
         html_content = f'''
         <!DOCTYPE html>
         <html>
         <head>
             <title>Authentication Successful</title>
             <script>
-                // Store token in localStorage for SDK access
+                // Store tokens in localStorage for SDK access
                 localStorage.setItem('token', '{access_token}');
                 localStorage.setItem('access_token', '{access_token}');
                 localStorage.setItem('auth_token', '{access_token}');
                 localStorage.setItem('base44_access_token', '{access_token}');
-                
+                localStorage.setItem('refresh_token', '{refresh_token}');
+
                 // Also store in sessionStorage
                 sessionStorage.setItem('token', '{access_token}');
                 sessionStorage.setItem('access_token', '{access_token}');
-                
+
                 // Set a cookie via JavaScript (in addition to the HTTP-only cookies)
-                document.cookie = "token=" + '{access_token}' + "; path=/; max-age=" + (60*60*24*7);
-                document.cookie = "access_token=Bearer " + '{access_token}' + "; path=/; max-age=" + (60*60*24*7);
-                
+                document.cookie = "token=" + '{access_token}' + "; path=/; max-age=" + 900;
+                document.cookie = "access_token=Bearer " + '{access_token}' + "; path=/; max-age=" + 900;
+
                 // Redirect to the original URL
                 window.location.href = '{from_url}';
             </script>
@@ -248,7 +253,7 @@ def login(
             httponly=True,
             samesite="lax",
             path="/",
-            max_age=60*60*24*7  # 7 days
+            max_age=900  # 15 min, matching access token expiry
         )
         
         # JS-accessible token
@@ -258,7 +263,7 @@ def login(
             httponly=False,  # Make accessible to JavaScript
             samesite="lax",
             path="/",
-            max_age=60*60*24*7  # 7 days
+            max_age=900  # 15 min, matching access token expiry
         )
         
         # Base token name
@@ -268,7 +273,7 @@ def login(
             httponly=False,
             samesite="lax",
             path="/",
-            max_age=60*60*24*7  # 7 days
+            max_age=900  # 15 min, matching access token expiry
         )
         
         # Authorization header for any fetch
@@ -278,7 +283,7 @@ def login(
         return response
     
     logger.info(f"Returning token for {form_data.username} without redirect")
-    return Token(access_token=access_token, token_type="bearer")
+    return token_pair
 
 @router.post("/register", response_model=UserRead)
 def register(
@@ -680,3 +685,77 @@ def set_password(
 
     logger.info(f"Password set for user {user.email}")
     return SetPasswordResponse(success=True, message="Password set successfully")
+
+
+class RefreshRequest(BaseModel):
+    """Request body for token refresh."""
+    refresh_token: str
+
+
+@router.post("/refresh", response_model=Token)
+def refresh(
+    *,
+    db: Session = Depends(deps.get_db),
+    body: RefreshRequest,
+) -> Token:
+    """Exchange a valid refresh token for a new token pair.
+
+    Implements rotation: the old refresh token is consumed and replaced.
+    If a consumed (already-used) token is presented, the entire family is
+    revoked to protect against token replay.
+    """
+    _INVALID = "Invalid or expired refresh token"
+
+    stored = rt_crud.get_by_token(db, raw_token=body.refresh_token)
+    if not stored:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=_INVALID)
+
+    # Reuse detection: token already consumed → revoke the whole family
+    if stored.is_revoked:
+        rt_crud.revoke_family(db, family_id=stored.family_id)
+        db.commit()
+        logger.warning(
+            "Refresh token reuse detected for user %s, family %s",
+            stored.user_id, stored.family_id,
+        )
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=_INVALID)
+
+    if stored.expires_at < datetime.now(timezone.utc):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=_INVALID)
+
+    user = crud.user.get(db, id=stored.user_id)
+    if not user or not user.is_active:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=_INVALID)
+
+    # Version mismatch → user's tokens were revoked globally
+    if stored.token_version != user.token_version:
+        rt_crud.revoke_family(db, family_id=stored.family_id)
+        db.commit()
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=_INVALID)
+
+    # Atomically: consume old token + create new pair in one commit
+    stored.is_revoked = True
+    db.add(stored)
+    # create_token_pair flushes the new token then commits both ops together
+    token_pair = create_token_pair(db, user, family_id=stored.family_id)
+    return token_pair
+
+
+class LogoutRequest(BaseModel):
+    """Request body for logout."""
+    refresh_token: str
+
+
+@router.post("/logout")
+def logout(
+    *,
+    db: Session = Depends(deps.get_db),
+    body: LogoutRequest,
+):
+    """Revoke the refresh token (server-side logout)."""
+    stored = rt_crud.get_by_token(db, raw_token=body.refresh_token)
+    if stored and not stored.is_revoked:
+        stored.is_revoked = True
+        db.add(stored)
+        db.commit()
+    return {"detail": "Logged out"}

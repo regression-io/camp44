@@ -8,9 +8,9 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
 from camp44.api import deps
+from camp44.core.auth_tokens import create_token_pair
 from camp44.core.config import settings
 from camp44.core.oauth import oauth
-from camp44.core.security import create_access_token
 from camp44.crud import user as user_crud
 
 router = APIRouter()
@@ -100,21 +100,23 @@ async def oidc_callback(
                     tenant_id=tenant_id,
                 )
 
-        # Generate access token - the create_access_token function should be sync
-        access_token = create_access_token(
-            data={"sub": str(user.id)}
-        )
+        # Generate token pair
+        token_pair = create_token_pair(db, user)
 
         # Get the frontend callback URL from session (stored during /login)
         from_url = request.session.pop('oidc_from_url', None)
 
         if from_url:
-            # Use the frontend's callback URL
             separator = '&' if '?' in from_url else '?'
-            redirect_url = f"{from_url}{separator}token={access_token}"
+            redirect_url = (
+                f"{from_url}{separator}token={token_pair.access_token}"
+                f"&refresh_token={token_pair.refresh_token}"
+            )
         else:
-            # Fallback to relative path (stays on API domain)
-            redirect_url = f"/auth-callback?token={access_token}"
+            redirect_url = (
+                f"/auth-callback?token={token_pair.access_token}"
+                f"&refresh_token={token_pair.refresh_token}"
+            )
         return RedirectResponse(
             url=redirect_url,
             status_code=status.HTTP_307_TEMPORARY_REDIRECT

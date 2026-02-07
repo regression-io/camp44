@@ -42,6 +42,11 @@ def get_current_user(
     user = crud.user.get(db, id=uuid.UUID(token_data.sub))
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+    if token_data.tv != user.token_version:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token revoked",
+        )
     return user
 
 

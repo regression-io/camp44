@@ -10,8 +10,8 @@ from sqlalchemy.orm import Session
 from webauthn.helpers.structs import AuthenticationCredential, RegistrationCredential
 
 from camp44.api import deps
+from camp44.core.auth_tokens import create_token_pair
 from camp44.core.config import settings
-from camp44.core.security import create_access_token
 from camp44.core.webauthn import (
     generate_passkey_registration_options,
     verify_passkey_registration,
@@ -63,6 +63,8 @@ class PasskeyAuthVerifyResponse(BaseModel):
     """Response model for passkey authentication verification."""
     access_token: str
     token_type: str = "bearer"
+    refresh_token: Optional[str] = None
+    expires_in: int = 900
 
 
 @router.post("/register/options", response_model=PasskeyRegOptionsResponse)
@@ -298,7 +300,11 @@ def passkey_authenticate_verify(
             detail=f"Passkey authentication failed: {str(e)}"
         )
 
-    # Create access token
-    access_token = create_access_token(data={"sub": str(user.id)})
+    # Create token pair
+    token_pair = create_token_pair(db, user)
 
-    return PasskeyAuthVerifyResponse(access_token=access_token)
+    return PasskeyAuthVerifyResponse(
+        access_token=token_pair.access_token,
+        refresh_token=token_pair.refresh_token,
+        expires_in=token_pair.expires_in,
+    )

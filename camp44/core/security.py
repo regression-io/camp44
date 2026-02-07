@@ -1,3 +1,5 @@
+import hashlib
+import secrets
 from datetime import datetime, timedelta, timezone
 
 from jose import jwt
@@ -34,6 +36,16 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     # Truncate to 72 bytes for bcrypt compatibility
     password_bytes = plain_password.encode('utf-8')[:72].decode('utf-8', errors='ignore')
     return pwd_context.verify(password_bytes, hashed_password)
+
+
+def create_refresh_token_value() -> str:
+    """Generate a cryptographically secure refresh token string."""
+    return secrets.token_urlsafe(48)
+
+
+def hash_refresh_token(token: str) -> str:
+    """Return the SHA-256 hex digest of a raw refresh token."""
+    return hashlib.sha256(token.encode()).hexdigest()
 
 
 def get_password_hash(password: str) -> str:

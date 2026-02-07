@@ -5,7 +5,8 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     API_V1_STR: str = "/api/v1"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 8  # 8 days
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 15  # Short-lived access tokens
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 30
     ALGORITHM: str = "HS256"
     DATABASE_URL: str = "sqlite:///./test.db"
     MINIO_URL: str = "localhost:9000"

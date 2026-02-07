@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- **Token refresh & revocation**: Short-lived 15-min access tokens with `tv` (token_version) claim, 30-day rotated refresh tokens stored as SHA-256 hashes, per-user instant revocation via `User.token_version`, refresh token family reuse detection
+  - `POST /auth/refresh` — exchange refresh token for new token pair (rotation)
+  - `POST /auth/logout` — server-side refresh token revocation
+  - `RefreshToken` model with family_id for reuse detection
+  - Backward compatible: old tokens without `tv` claim default to `tv=0`
+
 ### Security
 - **JWT secret startup validation**: App refuses to start in production with insecure default JWT_SECRET_KEY; warns in dev/SQLite mode
 - **Superuser seeding guard**: Skips creating default `admin@example.com`/`password` superuser when credentials are still defaults
