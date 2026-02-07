@@ -47,6 +47,21 @@ class Settings(BaseSettings):
     BASE44_APP_ID: Optional[str] = None
     BASE44_AUTH_PROXY: bool = False  # If True, proxy auth to Base44 instead of using local auth
 
+    # Feature Flags — disable Camp44 route groups not needed by the host app
+    CAMP44_DISABLE_FUNCTIONS: bool = False
+    CAMP44_DISABLE_METERING: bool = False
+    CAMP44_DISABLE_DEMO_BOOKING: bool = False
+    CAMP44_DISABLE_BASE44_PROXY: bool = False
+    CAMP44_DISABLE_BULK: bool = False
+    CAMP44_DISABLE_ADMIN: bool = False
+    CAMP44_DISABLE_PASSKEY: bool = False
+    CAMP44_DISABLE_OIDC: bool = False
+    CAMP44_DISABLE_INTEGRATIONS: bool = False
+    CAMP44_DISABLE_ENTITIES: bool = False
+    CAMP44_DISABLE_PUBLIC: bool = False
+    CAMP44_DISABLE_APPS: bool = False
+    CAMP44_DISABLE_STRIPE: bool = False
+
     # First Superuser
     FIRST_SUPERUSER: str = "admin@example.com"
     FIRST_SUPERUSER_PASSWORD: str = "password"
