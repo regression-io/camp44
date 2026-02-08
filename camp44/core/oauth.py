@@ -5,7 +5,7 @@ from typing import Dict, Optional
 
 import httpx
 from authlib.integrations.starlette_client import OAuth
-from authlib.jose import JsonWebKey, JsonWebToken, jwt
+from authlib.jose import JsonWebKey, JsonWebToken
 from authlib.jose.errors import JoseError
 
 from camp44.core.config import settings
@@ -72,6 +72,9 @@ class OIDCTokenValidator:
             return claims
 
         except (JoseError, ValueError) as e:
-            # Invalid token
-            print(f"Token validation error: {str(e)}")
+            # Expected for HS256 (Camp44) tokens — only log unexpected errors
+            error_str = str(e)
+            if "unsupported_algorithm" not in error_str:
+                import logging
+                logging.getLogger(__name__).debug("OIDC token validation: %s", error_str)
             return None

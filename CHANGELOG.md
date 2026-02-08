@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+- **OIDC middleware noise**: Suppressed "Token validation error: unsupported_algorithm" log that fired for every request using HS256 (Camp44) JWT tokens. Only unexpected OIDC errors are now logged at debug level.
+- **Unused import**: Removed unused `jwt` import from `camp44/core/oauth.py`
+
 ### Added
 - **Token refresh & revocation**: Short-lived 15-min access tokens with `tv` (token_version) claim, 30-day rotated refresh tokens stored as SHA-256 hashes, per-user instant revocation via `User.token_version`, refresh token family reuse detection
   - `POST /auth/refresh` — exchange refresh token for new token pair (rotation)
