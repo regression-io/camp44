@@ -720,7 +720,8 @@ def refresh(
         )
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=_INVALID)
 
-    if stored.expires_at < datetime.now(timezone.utc):
+    expires = stored.expires_at.replace(tzinfo=timezone.utc) if stored.expires_at.tzinfo is None else stored.expires_at
+    if expires < datetime.now(timezone.utc):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=_INVALID)
 
     user = crud.user.get(db, id=stored.user_id)

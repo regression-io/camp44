@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Fixed
+- **Token refresh datetime crash**: Fixed `TypeError: can't compare offset-naive and offset-aware datetimes` in `POST /auth/refresh` — DB-loaded naive datetimes now normalized to UTC-aware before expiry comparison
 - **OIDC middleware noise**: Suppressed "Token validation error: unsupported_algorithm" log that fired for every request using HS256 (Camp44) JWT tokens. Only unexpected OIDC errors are now logged at debug level.
 - **Unused import**: Removed unused `jwt` import from `camp44/core/oauth.py`
 
