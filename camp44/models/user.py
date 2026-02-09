@@ -21,7 +21,7 @@ class UserRead(SQLModel):
     email: str
     display_name: str | None = None
     is_active: bool
-    roles: list[str]
+    roles: list[str] = []
     created_at: datetime
     updated_at: datetime
     stripe_customer_id: Optional[str] = None
