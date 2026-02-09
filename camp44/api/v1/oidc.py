@@ -126,9 +126,18 @@ async def oidc_callback(
         import logging
         logger = logging.getLogger(__name__)
         logger.error("OIDC Callback error: %s", e, exc_info=True)
-        return JSONResponse(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            content={"detail": "Authentication failed. Please try again."}
+
+        # Redirect back to frontend with error instead of returning JSON
+        from_url = request.session.pop('oidc_from_url', None)
+        if from_url:
+            separator = '&' if '?' in from_url else '?'
+            return RedirectResponse(
+                url=f"{from_url}{separator}error=auth_failed",
+                status_code=status.HTTP_307_TEMPORARY_REDIRECT,
+            )
+        return RedirectResponse(
+            url="/login?error=auth_failed",
+            status_code=status.HTTP_307_TEMPORARY_REDIRECT,
         )
 
 

@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Fixed
+- **OIDC callback error returns JSON instead of redirect**: When OIDC authentication failed, the callback returned a JSON error response to the browser, leaving users stranded on a raw JSON page. Now redirects back to the frontend login page with `?error=auth_failed` param
 - **Token refresh datetime crash**: Fixed `TypeError: can't compare offset-naive and offset-aware datetimes` in `POST /auth/refresh` — DB-loaded naive datetimes now normalized to UTC-aware before expiry comparison
 - **OIDC middleware noise**: Suppressed "Token validation error: unsupported_algorithm" log that fired for every request using HS256 (Camp44) JWT tokens. Only unexpected OIDC errors are now logged at debug level.
 - **Unused import**: Removed unused `jwt` import from `camp44/core/oauth.py`
