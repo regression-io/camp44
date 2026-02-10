@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 15  # Short-lived access tokens
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30
     ALGORITHM: str = "HS256"
-    DATABASE_URL: str = "sqlite:///./test.db"
+    DATABASE_URL: str = "postgresql://camp44:camp44@localhost:5432/camp44"
     MINIO_URL: str = "localhost:9000"
     MINIO_ACCESS_KEY: str = "minio"
     MINIO_SECRET_KEY: str = "minio123"
@@ -80,9 +80,9 @@ def validate_production_settings():
     """Refuse to start with insecure defaults in production."""
     import warnings
 
-    is_dev = settings.DATABASE_URL.startswith("sqlite")
+    is_local = "localhost" in settings.DATABASE_URL or settings.DATABASE_URL.startswith("sqlite")
     if settings.JWT_SECRET_KEY in _INSECURE_JWT_SECRETS:
-        if is_dev:
+        if is_local:
             warnings.warn(
                 "JWT_SECRET_KEY is using an insecure default. "
                 "Set it in .env for production.",
@@ -93,7 +93,7 @@ def validate_production_settings():
                 "FATAL: JWT_SECRET_KEY is set to an insecure default. "
                 "Set a strong, unique JWT_SECRET_KEY in your .env file."
             )
-    if not is_dev and settings.FIRST_SUPERUSER_PASSWORD == "password":
+    if not is_local and settings.FIRST_SUPERUSER_PASSWORD == "password":
         raise RuntimeError(
             "FATAL: FIRST_SUPERUSER_PASSWORD is 'password'. "
             "Set a strong password in your .env file."

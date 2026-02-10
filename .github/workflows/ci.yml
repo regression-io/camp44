@@ -7,16 +7,36 @@ on:
     branches: [ main ]
 
 jobs:
-  build:
+  test:
     runs-on: ubuntu-latest
 
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: camp44
+          POSTGRES_PASSWORD: camp44
+          POSTGRES_DB: camp44
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U camp44"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://camp44:camp44@localhost:5432/camp44
+      TEST_DATABASE_URL: postgresql://camp44:camp44@localhost:5432/camp44_test
+      JWT_SECRET_KEY: ci-test-secret
+
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.12'
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5
@@ -27,18 +47,18 @@ jobs:
           uv pip install -e ".[dev]"
 
       - name: Run linter (non-blocking)
-        run: uv run ruff check . || echo "::warning::Linting issues found - see output above"
+        run: uv run ruff check . || echo "::warning::Linting issues found"
         continue-on-error: true
 
       - name: Run formatter check (non-blocking)
-        run: uv run ruff format --check . || echo "::warning::Formatting issues found - see output above"
+        run: uv run ruff format --check . || echo "::warning::Formatting issues found"
         continue-on-error: true
 
       - name: Run tests
         run: uv run pytest tests/ -v --tb=short
 
   notify:
-    needs: build
+    needs: test
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -46,7 +66,7 @@ jobs:
         if: always()
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
-          STATUS: ${{ needs.build.result }}
+          STATUS: ${{ needs.test.result }}
           REPO: ${{ github.repository }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
