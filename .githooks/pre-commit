@@ -1,0 +1,9 @@
+#!/bin/bash
+# Ruff format + lint on staged Python files
+
+STAGED_PY=$(git diff --cached --name-only --diff-filter=ACM | grep '\.py$')
+if [ -n "$STAGED_PY" ]; then
+    ruff format $STAGED_PY
+    ruff check --fix $STAGED_PY
+    git add $STAGED_PY
+fi

@@ -38,8 +38,7 @@ alembic = "alembic.config:main"
 
 [project.optional-dependencies]
 dev = [
-    "ruff>=0.4.4",
-    "black>=24.4.2",
+    "ruff>=0.4.0",
     "mypy>=1.10.0",
     "pytest>=8.2.0",
     "httpx>=0.27.0"
@@ -56,9 +55,6 @@ packages = ["camp44"]
 line-length = 88
 select = ["E", "F", "I", "W", "C90", "N", "D"]
 ignore = ["D100", "D104", "D105", "D107", "D203", "D212", "D415"]
-
-[tool.black]
-line-length = 88
 
 [tool.mypy]
 strict = true
