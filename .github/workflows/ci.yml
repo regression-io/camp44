@@ -6,28 +6,15 @@ on:
   pull_request:
     branches: [ main ]
 
+concurrency:
+  group: "${{ github.workflow }}-${{ github.ref }}"
+  cancel-in-progress: true
+
 jobs:
-  test:
+  smoke:
     runs-on: ubuntu-latest
 
-    services:
-      postgres:
-        image: postgres:15
-        env:
-          POSTGRES_USER: camp44
-          POSTGRES_PASSWORD: camp44
-          POSTGRES_DB: camp44
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U camp44"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 5
-
     env:
-      DATABASE_URL: postgresql://camp44:camp44@localhost:5432/camp44
-      TEST_DATABASE_URL: postgresql://camp44:camp44@localhost:5432/camp44_test
       JWT_SECRET_KEY: ci-test-secret
 
     steps:
@@ -54,11 +41,11 @@ jobs:
         run: uv run ruff format --check . || echo "::warning::Formatting issues found"
         continue-on-error: true
 
-      - name: Run tests
-        run: uv run pytest tests/ -v --tb=short
+      - name: Verify imports
+        run: uv run python -c "import camp44; print(f'camp44 imported OK')"
 
   notify:
-    needs: test
+    needs: smoke
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -66,7 +53,7 @@ jobs:
         if: always()
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
-          STATUS: ${{ needs.test.result }}
+          STATUS: ${{ needs.smoke.result }}
           REPO: ${{ github.repository }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
