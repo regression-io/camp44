@@ -31,6 +31,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     lifespan=lifespan,
+    redirect_slashes=False,  # Fail fast on wrong URLs instead of 307 (which drops auth headers)
     exception_handlers={
         HTTPException: http_exception_handler,
         Exception: generic_exception_handler
