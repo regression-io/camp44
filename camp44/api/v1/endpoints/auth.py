@@ -1,22 +1,22 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Request, Response, Form
-from fastapi.security import OAuth2PasswordRequestForm
-from fastapi.responses import RedirectResponse, HTMLResponse
-from sqlalchemy.orm import Session
-from pydantic import BaseModel, EmailStr, Field
-from typing import Optional
-from datetime import datetime, timedelta, timezone
 import logging
 import secrets
-import stripe
-import httpx
-
+from datetime import datetime, timedelta, timezone
+from typing import Optional
 from urllib.parse import urlparse
+
+import httpx
+import stripe
+from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
+from fastapi.responses import HTMLResponse
+from fastapi.security import OAuth2PasswordRequestForm
+from pydantic import BaseModel, EmailStr, Field
+from sqlalchemy.orm import Session
 
 from camp44 import crud
 from camp44.api import deps
 from camp44.core.auth_tokens import create_token_pair
-from camp44.core.security import get_password_hash
 from camp44.core.config import settings
+from camp44.core.security import get_password_hash
 from camp44.crud import refresh_token as rt_crud
 from camp44.models.token import Token
 from camp44.models.user import User, UserCreate, UserRead
@@ -42,6 +42,7 @@ def _sanitize_redirect_url(url: str | None) -> str | None:
         return url
     except Exception:
         return None
+
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -93,12 +94,15 @@ The ScaleMate Team
                 logger.info(f"Welcome email sent to {email}")
                 return True
             else:
-                logger.error(f"Failed to send welcome email to {email}: {response.text}")
+                logger.error(
+                    f"Failed to send welcome email to {email}: {response.text}"
+                )
                 return False
 
     except Exception as e:
         logger.error(f"Exception sending welcome email to {email}: {e}")
         return False
+
 
 # Initialize Stripe
 if settings.STRIPE_SECRET_KEY:
@@ -107,6 +111,7 @@ if settings.STRIPE_SECRET_KEY:
 
 class CheckoutRequest(BaseModel):
     """Request body for creating a Stripe checkout session."""
+
     email: EmailStr
     name: str
     plan: str  # "growth" or "scale"
@@ -117,8 +122,10 @@ class CheckoutRequest(BaseModel):
 
 class CheckoutResponse(BaseModel):
     """Response with Stripe checkout URL."""
+
     checkout_url: str
     session_id: str
+
 
 @router.get("/login", response_class=HTMLResponse)
 async def login_page(
@@ -132,11 +139,13 @@ async def login_page(
     but our authentication flow expects a POST with form data.
     """
     logger.info(f"GET /login request with from_url={from_url}, app_id={app_id}")
-    
+
     # Use provided parameters or get them from query string
-    from_url = from_url or request.query_params.get("from_url", "http://localhost:5173/")
+    from_url = from_url or request.query_params.get(
+        "from_url", "http://localhost:5173/"
+    )
     app_id = app_id or request.query_params.get("app_id", "")
-    
+
     # Create a simple login form HTML that posts directly to /auth/login
     login_form = f'''
     <!DOCTYPE html>
@@ -178,29 +187,33 @@ async def login_page(
     '''
     return HTMLResponse(content=login_form)
 
+
 @router.post("/login", response_model=Token)
 def login(
-        db: Session = Depends(deps.get_db),
-        form_data: OAuth2PasswordRequestForm = Depends(),
-        from_url: str = Form(None),
-        app_id: str = Form(None),
-        request: Request = None,
+    db: Session = Depends(deps.get_db),
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    from_url: str = Form(None),
+    app_id: str = Form(None),
+    request: Request = None,
 ) -> Token:
     """Logs a user in."""
     logger.info(f"POST /login request for username={form_data.username}")
-    
+
     user = crud.user.authenticate(
         session=db, email=form_data.username, password=form_data.password
     )
     if not user:
         logger.error(f"Authentication failed for {form_data.username}")
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect email or password")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect email or password",
+        )
     elif not user.is_active:
         logger.error(f"User {form_data.username} is inactive")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Inactive user"
         )
-        
+
     logger.info(f"Authentication successful for {form_data.username}")
     token_pair = create_token_pair(db, user)
     access_token = token_pair.access_token
@@ -211,7 +224,7 @@ def login(
     if from_url:
         logger.info(f"Creating JS-enhanced redirect page to {from_url}")
 
-        html_content = f'''
+        html_content = f"""
         <!DOCTYPE html>
         <html>
         <head>
@@ -241,54 +254,55 @@ def login(
             <p>Redirecting to application...</p>
         </body>
         </html>
-        '''
-        
+        """
+
         # Set cookies in the HTTP response as well
         response = HTMLResponse(content=html_content)
-        
+
         # HTTP-only secure cookie (most secure)
         response.set_cookie(
-            key="access_token", 
+            key="access_token",
             value=f"Bearer {access_token}",
             httponly=True,
             samesite="lax",
             path="/",
-            max_age=900  # 15 min, matching access token expiry
+            max_age=900,  # 15 min, matching access token expiry
         )
-        
+
         # JS-accessible token
         response.set_cookie(
-            key="auth_token", 
+            key="auth_token",
             value=access_token,
             httponly=False,  # Make accessible to JavaScript
             samesite="lax",
             path="/",
-            max_age=900  # 15 min, matching access token expiry
+            max_age=900,  # 15 min, matching access token expiry
         )
-        
+
         # Base token name
         response.set_cookie(
-            key="token", 
+            key="token",
             value=access_token,
             httponly=False,
             samesite="lax",
             path="/",
-            max_age=900  # 15 min, matching access token expiry
+            max_age=900,  # 15 min, matching access token expiry
         )
-        
+
         # Authorization header for any fetch
         response.headers["Authorization"] = f"Bearer {access_token}"
-        
-        logger.info(f"Login successful for {form_data.username}, sending enhanced redirect page")
+
+        logger.info(
+            f"Login successful for {form_data.username}, sending enhanced redirect page"
+        )
         return response
-    
+
     logger.info(f"Returning token for {form_data.username} without redirect")
     return token_pair
 
+
 @router.post("/register", response_model=UserRead)
-def register(
-        *, db: Session = Depends(deps.get_db), user_in: UserCreate
-) -> User:
+def register(*, db: Session = Depends(deps.get_db), user_in: UserCreate) -> User:
     """Registers a new user."""
     user = crud.user.get_user_by_email(session=db, email=user_in.email)
     if user:
@@ -392,12 +406,15 @@ def create_checkout_session(
                     "company": checkout_request.company or "",
                 },
             },
-            success_url=checkout_request.success_url + "?session_id={CHECKOUT_SESSION_ID}",
+            success_url=checkout_request.success_url
+            + "?session_id={CHECKOUT_SESSION_ID}",
             cancel_url=checkout_request.cancel_url,
             allow_promotion_codes=True,
         )
 
-        logger.info(f"Created checkout session {session.id} for {checkout_request.email}")
+        logger.info(
+            f"Created checkout session {session.id} for {checkout_request.email}"
+        )
 
         if not session.url:
             raise HTTPException(
@@ -465,7 +482,9 @@ async def stripe_webhook(request: Request, db: Session = Depends(deps.get_db)):
             raise HTTPException(status_code=400, detail="Missing customer_id")
 
         # Check idempotency - if user already has this customer_id, skip
-        existing_by_stripe = crud.user.get_by_stripe_customer_id(session=db, customer_id=customer_id)
+        existing_by_stripe = crud.user.get_by_stripe_customer_id(
+            session=db, customer_id=customer_id
+        )
         if existing_by_stripe:
             logger.info(f"Webhook already processed for customer {customer_id}")
             return {"status": "success", "message": "Already processed"}
@@ -494,12 +513,16 @@ async def stripe_webhook(request: Request, db: Session = Depends(deps.get_db)):
             existing_user.stripe_subscription_id = subscription_id
             db.add(existing_user)
             db.commit()
-            logger.info(f"Updated existing user {email} with subscription {subscription_id}")
+            logger.info(
+                f"Updated existing user {email} with subscription {subscription_id}"
+            )
             return {"status": "success", "message": "User updated"}
 
         # Generate a password reset token (user will set their own password)
         reset_token = secrets.token_urlsafe(32)
-        reset_expires = datetime.now(timezone.utc) + timedelta(days=7)  # Token valid for 7 days
+        reset_expires = datetime.now(timezone.utc) + timedelta(
+            days=7
+        )  # Token valid for 7 days
 
         # Generate a random password (user won't use this directly)
         temp_password = secrets.token_urlsafe(32)
@@ -519,13 +542,23 @@ async def stripe_webhook(request: Request, db: Session = Depends(deps.get_db)):
             new_user.password_reset_expires = reset_expires
             db.add(new_user)
             db.commit()
-            logger.info(f"Created new user {email} from Stripe checkout with reset token")
+            logger.info(
+                f"Created new user {email} from Stripe checkout with reset token"
+            )
 
             # Send welcome email with password setup link
-            setup_url = f"https://scalemate.regression.io/set-password?token={reset_token}"
+            frontend_url = (
+                getattr(settings, "FRONTEND_URL", None)
+                or "https://app.scalemate.regression.io"
+            )
+            setup_url = f"{frontend_url}/set-password?token={reset_token}"
             await send_welcome_email(email, name, setup_url)
 
-            return {"status": "success", "message": "User created", "user_id": str(new_user.id)}
+            return {
+                "status": "success",
+                "message": "User created",
+                "user_id": str(new_user.id),
+            }
         except Exception as e:
             logger.error(f"Failed to create user {email}: {e}")
             db.rollback()
@@ -548,10 +581,14 @@ async def stripe_webhook(request: Request, db: Session = Depends(deps.get_db)):
             user.stripe_subscription_id = None
             db.add(user)
             db.commit()
-            logger.info(f"Deactivated user {user.email} due to subscription cancellation")
+            logger.info(
+                f"Deactivated user {user.email} due to subscription cancellation"
+            )
             return {"status": "success", "message": "User deactivated"}
         else:
-            logger.warning(f"No user found for cancelled subscription customer {customer_id}")
+            logger.warning(
+                f"No user found for cancelled subscription customer {customer_id}"
+            )
             return {"status": "success", "message": "User not found"}
 
     # Return success for unhandled events
@@ -560,23 +597,27 @@ async def stripe_webhook(request: Request, db: Session = Depends(deps.get_db)):
 
 class SetPasswordRequest(BaseModel):
     """Request body for setting password with reset token."""
+
     token: str
     password: str = Field(min_length=8)
 
 
 class SetPasswordResponse(BaseModel):
     """Response after setting password."""
+
     success: bool
     message: str
 
 
 class SetupLinkRequest(BaseModel):
     """Request body for getting password setup link from checkout session."""
+
     session_id: str
 
 
 class SetupLinkResponse(BaseModel):
     """Response with password setup information."""
+
     success: bool
     setup_url: Optional[str] = None
     email: Optional[str] = None
@@ -641,7 +682,10 @@ def get_setup_link(
         )
 
     # Return the setup URL
-    setup_url = f"https://app.scalemate.regression.io/set-password?token={user.password_reset_token}"
+    frontend_url = (
+        getattr(settings, "FRONTEND_URL", None) or "https://app.scalemate.regression.io"
+    )
+    setup_url = f"{frontend_url}/set-password?token={user.password_reset_token}"
     return SetupLinkResponse(
         success=True,
         setup_url=setup_url,
@@ -670,7 +714,11 @@ def set_password(
         )
 
     # Check if token is expired
-    if user.password_reset_expires and user.password_reset_expires < datetime.now(timezone.utc):
+    # Handle both naive (TIMESTAMP) and aware (TIMESTAMPTZ) datetimes from DB
+    expires = user.password_reset_expires
+    if expires and expires.tzinfo is None:
+        expires = expires.replace(tzinfo=timezone.utc)
+    if expires and expires < datetime.now(timezone.utc):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Reset token has expired",
@@ -687,8 +735,79 @@ def set_password(
     return SetPasswordResponse(success=True, message="Password set successfully")
 
 
+class ForgotPasswordRequest(BaseModel):
+    """Request body for forgot password."""
+
+    email: EmailStr
+
+
+@router.post("/forgot-password")
+def forgot_password(
+    *,
+    db: Session = Depends(deps.get_db),
+    request: ForgotPasswordRequest,
+):
+    """
+    Request a password reset email.
+
+    Always returns 200 regardless of whether the email exists (prevents enumeration).
+    """
+    user = crud.user.get_user_by_email(session=db, email=request.email)
+    if user and user.is_active:
+        reset_token = secrets.token_urlsafe(32)
+        user.password_reset_token = reset_token
+        user.password_reset_expires = datetime.now(timezone.utc) + timedelta(hours=24)
+        db.add(user)
+        db.commit()
+
+        frontend_url = (
+            getattr(settings, "FRONTEND_URL", None)
+            or "https://app.scalemate.regression.io"
+        )
+        reset_url = f"{frontend_url}/set-password?token={reset_token}"
+
+        if settings.BASE44_API_KEY and settings.BASE44_APP_ID:
+            try:
+                with httpx.Client(timeout=30.0) as client:
+                    client.post(
+                        f"{settings.BASE44_API_URL}/apps/{settings.BASE44_APP_ID}/integration-endpoints/Core/SendEmail",
+                        headers={
+                            "Content-Type": "application/json",
+                            "api_key": settings.BASE44_API_KEY,
+                        },
+                        json={
+                            "to": user.email,
+                            "subject": "ScaleMate - Reset Your Password",
+                            "body": (
+                                f"<h2>Password Reset</h2>"
+                                f"<p>Hi {user.display_name or 'there'},</p>"
+                                f"<p>We received a request to reset your password. "
+                                f"Click the link below to set a new password:</p>"
+                                f'<p><a href="{reset_url}" style="color: #059669; font-weight: bold;">'
+                                f"Reset Password</a></p>"
+                                f"<p>This link expires in 24 hours.</p>"
+                                f"<p>If you didn't request this, you can safely ignore this email.</p>"
+                                f"<p>— The ScaleMate Team</p>"
+                            ),
+                            "from_name": "ScaleMate",
+                        },
+                    )
+                logger.info(f"Password reset email sent to {user.email}")
+            except Exception as e:
+                logger.error(f"Failed to send reset email to {user.email}: {e}")
+        else:
+            logger.warning(
+                "BASE44_API_KEY or BASE44_APP_ID not configured, skipping reset email"
+            )
+
+    return {
+        "message": "If an account with that email exists, a password reset link has been sent."
+    }
+
+
 class RefreshRequest(BaseModel):
     """Request body for token refresh."""
+
     refresh_token: str
 
 
@@ -698,7 +817,8 @@ def refresh(
     db: Session = Depends(deps.get_db),
     body: RefreshRequest,
 ) -> Token:
-    """Exchange a valid refresh token for a new token pair.
+    """
+    Exchange a valid refresh token for a new token pair.
 
     Implements rotation: the old refresh token is consumed and replaced.
     If a consumed (already-used) token is presented, the entire family is
@@ -716,11 +836,16 @@ def refresh(
         db.commit()
         logger.warning(
             "Refresh token reuse detected for user %s, family %s",
-            stored.user_id, stored.family_id,
+            stored.user_id,
+            stored.family_id,
         )
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=_INVALID)
 
-    expires = stored.expires_at.replace(tzinfo=timezone.utc) if stored.expires_at.tzinfo is None else stored.expires_at
+    expires = (
+        stored.expires_at.replace(tzinfo=timezone.utc)
+        if stored.expires_at.tzinfo is None
+        else stored.expires_at
+    )
     if expires < datetime.now(timezone.utc):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=_INVALID)
 
@@ -744,6 +869,7 @@ def refresh(
 
 class LogoutRequest(BaseModel):
     """Request body for logout."""
+
     refresh_token: str
 
 
