@@ -1,4 +1,5 @@
-"""Base44 integrations proxy endpoints.
+"""
+Base44 integrations proxy endpoints.
 
 Proxies requests to Base44's Core integrations (InvokeLLM, SendEmail, etc.)
 using the service API key, so users authenticate to camp44 and never see
@@ -7,11 +8,12 @@ the Base44 credentials.
 Also supports auth proxy mode (BASE44_AUTH_PROXY=true) where auth is proxied
 to Base44 for users who want to use Base44 accounts with self-hosted infrastructure.
 """
+
 from typing import Any, Dict, Optional
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import RedirectResponse, HTMLResponse
+from fastapi.responses import RedirectResponse
 
 from camp44.api import deps
 from camp44.core.config import settings
@@ -34,12 +36,12 @@ def _check_base44_config():
     if not settings.BASE44_API_KEY:
         raise HTTPException(
             status_code=503,
-            detail="Base44 integration not configured. Set BASE44_API_KEY."
+            detail="Base44 integration not configured. Set BASE44_API_KEY.",
         )
     if not settings.BASE44_APP_ID:
         raise HTTPException(
             status_code=503,
-            detail="Base44 integration not configured. Set BASE44_APP_ID."
+            detail="Base44 integration not configured. Set BASE44_APP_ID.",
         )
 
 
@@ -69,20 +71,18 @@ async def _proxy_to_base44(
             if response.status_code != 200:
                 raise HTTPException(
                     status_code=response.status_code,
-                    detail=f"Base44 {integration_name} error: {response.text}"
+                    detail=f"Base44 {integration_name} error: {response.text}",
                 )
 
             return response.json()
 
         except httpx.TimeoutException:
             raise HTTPException(
-                status_code=504,
-                detail=f"{integration_name} request timed out"
+                status_code=504, detail=f"{integration_name} request timed out"
             )
         except httpx.RequestError as e:
             raise HTTPException(
-                status_code=502,
-                detail=f"Failed to reach Base44: {str(e)}"
+                status_code=502, detail=f"Failed to reach Base44: {str(e)}"
             )
 
 
@@ -109,6 +109,15 @@ async def send_email(
 
     Accepts: to, subject, body, from_email, etc.
     """
+    # Testing safety: redirect outbound emails to the logged-in user
+    # so test emails never reach real recipients.
+    if "to" in request:
+        original_to = request["to"]
+        request = {
+            **request,
+            "to": _current_user.email,
+            "subject": f"[To: {original_to}] {request.get('subject', '')}",
+        }
     return await _proxy_to_base44("SendEmail", request)
 
 
@@ -155,6 +164,7 @@ async def extract_data_from_file(
 # Auth Proxy Endpoints (when BASE44_AUTH_PROXY=true)
 # =============================================================================
 
+
 @router.get("/auth/login")
 async def auth_proxy_login(
     request: Request,
@@ -168,7 +178,7 @@ async def auth_proxy_login(
     if not settings.BASE44_AUTH_PROXY:
         raise HTTPException(
             status_code=404,
-            detail="Base44 auth proxy not enabled. Use /auth/login for local auth."
+            detail="Base44 auth proxy not enabled. Use /auth/login for local auth.",
         )
 
     _check_base44_config()
@@ -201,7 +211,7 @@ async def auth_proxy_me(
     if not settings.BASE44_AUTH_PROXY:
         raise HTTPException(
             status_code=404,
-            detail="Base44 auth proxy not enabled. Use /users/me for local auth."
+            detail="Base44 auth proxy not enabled. Use /users/me for local auth.",
         )
 
     _check_base44_config()
@@ -209,10 +219,7 @@ async def auth_proxy_me(
     # Get token from Authorization header
     auth_header = request.headers.get("Authorization", "")
     if not auth_header:
-        raise HTTPException(
-            status_code=401,
-            detail="Authorization header required"
-        )
+        raise HTTPException(status_code=401, detail="Authorization header required")
 
     async with httpx.AsyncClient(timeout=30.0) as client:
         try:
@@ -227,20 +234,16 @@ async def auth_proxy_me(
             if response.status_code != 200:
                 raise HTTPException(
                     status_code=response.status_code,
-                    detail=f"Base44 auth error: {response.text}"
+                    detail=f"Base44 auth error: {response.text}",
                 )
 
             return response.json()
 
         except httpx.TimeoutException:
-            raise HTTPException(
-                status_code=504,
-                detail="Base44 auth request timed out"
-            )
+            raise HTTPException(status_code=504, detail="Base44 auth request timed out")
         except httpx.RequestError as e:
             raise HTTPException(
-                status_code=502,
-                detail=f"Failed to reach Base44: {str(e)}"
+                status_code=502, detail=f"Failed to reach Base44: {str(e)}"
             )
 
 
@@ -256,17 +259,14 @@ async def auth_proxy_update_me(
     if not settings.BASE44_AUTH_PROXY:
         raise HTTPException(
             status_code=404,
-            detail="Base44 auth proxy not enabled. Use /users/me for local auth."
+            detail="Base44 auth proxy not enabled. Use /users/me for local auth.",
         )
 
     _check_base44_config()
 
     auth_header = request.headers.get("Authorization", "")
     if not auth_header:
-        raise HTTPException(
-            status_code=401,
-            detail="Authorization header required"
-        )
+        raise HTTPException(status_code=401, detail="Authorization header required")
 
     async with httpx.AsyncClient(timeout=30.0) as client:
         try:
@@ -283,18 +283,14 @@ async def auth_proxy_update_me(
             if response.status_code != 200:
                 raise HTTPException(
                     status_code=response.status_code,
-                    detail=f"Base44 update error: {response.text}"
+                    detail=f"Base44 update error: {response.text}",
                 )
 
             return response.json()
 
         except httpx.TimeoutException:
-            raise HTTPException(
-                status_code=504,
-                detail="Base44 request timed out"
-            )
+            raise HTTPException(status_code=504, detail="Base44 request timed out")
         except httpx.RequestError as e:
             raise HTTPException(
-                status_code=502,
-                detail=f"Failed to reach Base44: {str(e)}"
+                status_code=502, detail=f"Failed to reach Base44: {str(e)}"
             )
