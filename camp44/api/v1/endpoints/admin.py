@@ -1,32 +1,35 @@
-"""Admin endpoints for user and system management.
+"""
+Admin endpoints for user and system management.
 
 Requires admin role to access.
 """
-from typing import Any, List, Optional
+
+from typing import List
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import func
 from sqlalchemy.orm import Session
-from sqlalchemy import func, text
 
 from camp44 import crud
 from camp44.api import deps
-from camp44.models.user import User, UserRead, UserUpdate
 from camp44.models.app import App
 from camp44.models.entity import Entity
+from camp44.models.refresh_token import RefreshToken
+from camp44.models.user import User, UserRead, UserUpdate
 
 router = APIRouter()
 
 
 def require_admin(current_user: User = Depends(deps.get_current_active_user)) -> User:
-    """Dependency that requires user to be an admin.
+    """
+    Dependency that requires user to be an admin.
 
     Checks if user has 'admin' role in their roles array.
     """
-    if 'admin' not in (current_user.roles or []):
+    if "admin" not in (current_user.roles or []):
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin access required"
+            status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required"
         )
     return current_user
 
@@ -34,6 +37,7 @@ def require_admin(current_user: User = Depends(deps.get_current_active_user)) ->
 # =============================================================================
 # Dashboard Stats
 # =============================================================================
+
 
 @router.get("/stats")
 def get_admin_stats(
@@ -43,7 +47,9 @@ def get_admin_stats(
     """Get admin dashboard statistics."""
     # Count users
     total_users = db.query(func.count(User.id)).scalar() or 0
-    active_users = db.query(func.count(User.id)).filter(User.is_active == True).scalar() or 0
+    active_users = (
+        db.query(func.count(User.id)).filter(User.is_active == True).scalar() or 0
+    )
 
     # Count apps
     total_apps = db.query(func.count(App.id)).scalar() or 0
@@ -52,10 +58,11 @@ def get_admin_stats(
     total_entities = db.query(func.count(Entity.id)).scalar() or 0
 
     # Entity types breakdown
-    entity_types = db.query(
-        Entity.name,
-        func.count(Entity.id).label('count')
-    ).group_by(Entity.name).all()
+    entity_types = (
+        db.query(Entity.name, func.count(Entity.id).label("count"))
+        .group_by(Entity.name)
+        .all()
+    )
 
     return {
         "users": {
@@ -68,14 +75,15 @@ def get_admin_stats(
         },
         "entities": {
             "total": total_entities,
-            "by_type": {e.name: e.count for e in entity_types}
-        }
+            "by_type": {e.name: e.count for e in entity_types},
+        },
     }
 
 
 # =============================================================================
 # User Management
 # =============================================================================
+
 
 @router.get("/users", response_model=List[UserRead])
 def list_users(
@@ -151,8 +159,7 @@ def deactivate_user(
     # Prevent admin from deactivating themselves
     if user.id == admin.id:
         raise HTTPException(
-            status_code=400,
-            detail="Cannot deactivate your own account"
+            status_code=400, detail="Cannot deactivate your own account"
         )
 
     user.is_active = False
@@ -173,8 +180,8 @@ def make_admin(
         raise HTTPException(status_code=404, detail="User not found")
 
     # Add 'admin' role if not already present
-    if 'admin' not in (user.roles or []):
-        user.roles = (user.roles or []) + ['admin']
+    if "admin" not in (user.roles or []):
+        user.roles = (user.roles or []) + ["admin"]
     db.commit()
     db.refresh(user)
     return user
@@ -194,13 +201,12 @@ def remove_admin(
     # Prevent admin from removing their own admin status
     if user.id == admin.id:
         raise HTTPException(
-            status_code=400,
-            detail="Cannot remove your own admin privileges"
+            status_code=400, detail="Cannot remove your own admin privileges"
         )
 
     # Remove 'admin' role if present
-    if 'admin' in (user.roles or []):
-        user.roles = [r for r in user.roles if r != 'admin']
+    if "admin" in (user.roles or []):
+        user.roles = [r for r in user.roles if r != "admin"]
     db.commit()
     db.refresh(user)
     return user
@@ -219,10 +225,10 @@ def delete_user(
 
     # Prevent admin from deleting themselves
     if user.id == admin.id:
-        raise HTTPException(
-            status_code=400,
-            detail="Cannot delete your own account"
-        )
+        raise HTTPException(status_code=400, detail="Cannot delete your own account")
+
+    # Delete related rows that have FK references to the user
+    db.query(RefreshToken).filter(RefreshToken.user_id == user_id).delete()
 
     db.delete(user)
     db.commit()
@@ -232,6 +238,7 @@ def delete_user(
 # =============================================================================
 # App Management
 # =============================================================================
+
 
 @router.get("/apps")
 def list_apps(
@@ -248,7 +255,9 @@ def list_apps(
             "name": app.name,
             "description": app.description,
             "owner_id": str(app.owner_id) if app.owner_id else None,
-            "created_at": app.created_at.isoformat() if hasattr(app, 'created_at') and app.created_at else None,
+            "created_at": app.created_at.isoformat()
+            if hasattr(app, "created_at") and app.created_at
+            else None,
         }
         for app in apps
     ]
@@ -258,24 +267,21 @@ def list_apps(
 # Entity Management
 # =============================================================================
 
+
 @router.get("/entities")
 def list_entity_types(
     db: Session = Depends(deps.get_db),
     _admin: User = Depends(require_admin),
 ) -> List[dict]:
     """List all entity types with counts (admin only)."""
-    entity_types = db.query(
-        Entity.name,
-        Entity.app_id,
-        func.count(Entity.id).label('count')
-    ).group_by(Entity.name, Entity.app_id).all()
+    entity_types = (
+        db.query(Entity.name, Entity.app_id, func.count(Entity.id).label("count"))
+        .group_by(Entity.name, Entity.app_id)
+        .all()
+    )
 
     return [
-        {
-            "entity_type": e.name,
-            "app_id": str(e.app_id),
-            "count": e.count
-        }
+        {"entity_type": e.name, "app_id": str(e.app_id), "count": e.count}
         for e in entity_types
     ]
 
@@ -290,10 +296,13 @@ def list_entities(
     limit: int = Query(100, ge=1, le=1000),
 ) -> List[dict]:
     """List entities of a specific type (admin only)."""
-    entities = db.query(Entity).filter(
-        Entity.app_id == app_id,
-        Entity.name == entity_type
-    ).offset(skip).limit(limit).all()
+    entities = (
+        db.query(Entity)
+        .filter(Entity.app_id == app_id, Entity.name == entity_type)
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
 
     return [
         {
