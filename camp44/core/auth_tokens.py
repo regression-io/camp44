@@ -1,4 +1,5 @@
 """Token pair creation helper used by all login flows."""
+
 import uuid
 from typing import Optional
 
@@ -17,7 +18,8 @@ def create_token_pair(
     *,
     family_id: Optional[uuid.UUID] = None,
 ) -> Token:
-    """Create a short-lived access token + rotated refresh token.
+    """
+    Create a short-lived access token + rotated refresh token.
 
     Args:
         db: Database session.
@@ -26,9 +28,14 @@ def create_token_pair(
 
     Returns:
         Token with access_token, refresh_token, and expires_in.
+
     """
     access_token = create_access_token(
-        data={"sub": str(user.id), "tv": user.token_version}
+        data={
+            "sub": str(user.id),
+            "tv": user.token_version,
+            "tenant_id": user.tenant_id or "default",
+        }
     )
 
     raw_refresh, _ = rt_crud.create(
