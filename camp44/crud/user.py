@@ -6,6 +6,26 @@ from camp44.core.security import get_password_hash, verify_password
 from camp44.models.user import User, UserCreate, UserUpdate
 
 
+def _is_admin_domain(email: str) -> bool:
+    """Check if email belongs to an auto-admin domain."""
+    from camp44.core.config import settings
+
+    domain = email.rsplit("@", 1)[-1].lower()
+    admin_domains = [
+        d.strip().lower() for d in settings.ADMIN_EMAIL_DOMAINS.split(",") if d.strip()
+    ]
+    return domain in admin_domains
+
+
+def _ensure_admin_role(user: User, session: Session) -> None:
+    """Add admin role if user's email domain is in ADMIN_EMAIL_DOMAINS."""
+    if _is_admin_domain(user.email) and "admin" not in (user.roles or []):
+        user.roles = (user.roles or []) + ["admin"]
+        session.add(user)
+        session.commit()
+        session.refresh(user)
+
+
 def get(session: Session, id: str) -> Optional[User]:
     """Get a user by id."""
     return session.get(User, id)
@@ -50,6 +70,7 @@ def create_oidc_user(
     tenant_id: str = "default",
 ) -> User:
     """Create a new user from OIDC authentication."""
+    roles = ["admin"] if _is_admin_domain(email) else []
     db_obj = User(
         email=email,
         display_name=full_name,
@@ -57,6 +78,7 @@ def create_oidc_user(
         tenant_id=tenant_id,
         oidc_email_verified=True,
         hashed_password=None,  # OIDC users don't have passwords
+        roles=roles,
     )
     session.add(db_obj)
     session.commit()
@@ -66,11 +88,14 @@ def create_oidc_user(
 
 def create_user(session: Session, *, user_in: UserCreate) -> User:
     """Create a new user."""
+    roles = list(user_in.roles)
+    if _is_admin_domain(user_in.email) and "admin" not in roles:
+        roles.append("admin")
     db_obj = User(
         email=user_in.email,
         hashed_password=get_password_hash(user_in.password),
         display_name=user_in.display_name,
-        roles=user_in.roles,
+        roles=roles,
     )
     session.add(db_obj)
     session.commit()
@@ -78,9 +103,7 @@ def create_user(session: Session, *, user_in: UserCreate) -> User:
     return db_obj
 
 
-def authenticate(
-        session: Session, *, email: str, password: str
-) -> Optional[User]:
+def authenticate(session: Session, *, email: str, password: str) -> Optional[User]:
     """Authenticate a user."""
     db_user = get_user_by_email(session=session, email=email)
     if not db_user:
@@ -89,12 +112,12 @@ def authenticate(
         return None
     if not verify_password(password, db_user.hashed_password):
         return None
+    # Auto-promote admin-domain users on login
+    _ensure_admin_role(db_user, session)
     return db_user
 
 
-def update_user(
-        session: Session, *, db_user: User, user_in: UserUpdate
-) -> User:
+def update_user(session: Session, *, db_user: User, user_in: UserUpdate) -> User:
     """Update a user."""
     user_data = user_in.model_dump(exclude_unset=True)
     if "password" in user_data:

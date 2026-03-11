@@ -85,6 +85,11 @@ class Settings(BaseSettings):
     FIRST_SUPERUSER: str = "admin@example.com"
     FIRST_SUPERUSER_PASSWORD: str = "password"
 
+    # Domain-based auto-admin: comma-separated list of email domains
+    ADMIN_EMAIL_DOMAINS: str = (
+        "regression.io,taliertradinggroup.com,talliertradinggroup.com"
+    )
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
