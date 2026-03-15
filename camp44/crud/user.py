@@ -18,7 +18,14 @@ def _is_admin_domain(email: str) -> bool:
 
 
 def _ensure_admin_role(user: User, session: Session) -> None:
-    """Add admin role if user's email domain is in ADMIN_EMAIL_DOMAINS."""
+    """
+    Add admin role if user's email domain is in ADMIN_EMAIL_DOMAINS.
+
+    Skips users whose admin privileges were explicitly removed via the
+    remove-admin endpoint (``user.admin_removed is True``).
+    """
+    if user.admin_removed:
+        return
     if _is_admin_domain(user.email) and "admin" not in (user.roles or []):
         user.roles = (user.roles or []) + ["admin"]
         session.add(user)

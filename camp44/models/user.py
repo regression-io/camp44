@@ -2,8 +2,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Dict, List, Optional
 
-from sqlalchemy import Column
-from sqlalchemy import JSON
+from sqlalchemy import JSON, Column
 from sqlmodel import Field, Relationship, SQLModel
 
 
@@ -53,15 +52,28 @@ class User(SQLModel, table=True):
     token_version: int = Field(default=0)
     roles: List[str] = Field(default=[], sa_column=Column(JSON))
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), sa_column_kwargs={"onupdate": lambda: datetime.now(timezone.utc)})
+    updated_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column_kwargs={"onupdate": lambda: datetime.now(timezone.utc)},
+    )
 
     # OIDC fields
-    oidc_sub: Optional[str] = Field(default=None, index=True)  # Subject identifier from OIDC
+    oidc_sub: Optional[str] = Field(
+        default=None, index=True
+    )  # Subject identifier from OIDC
     oidc_issuer: Optional[str] = Field(default=None)  # Issuer URL
     oidc_email_verified: bool = Field(default=False)  # Email verified by IdP
-    tenant_id: Optional[str] = Field(default=None, index=True)  # Tenant ID from OIDC claims
+    tenant_id: Optional[str] = Field(
+        default=None, index=True
+    )  # Tenant ID from OIDC claims
+
+    # Set True when an admin explicitly removes admin privileges via remove-admin.
+    # Prevents _ensure_admin_role from re-promoting on next login.
+    admin_removed: bool = Field(default=False)
 
     # WebAuthn/Passkey credentials - JSON array of registered credentials
     passkey_credentials: List[Dict] = Field(default=[], sa_column=Column(JSON))
 
-    apps: List["App"] = Relationship(back_populates="owner", sa_relationship_kwargs={"cascade": "all, delete-orphan"})
+    apps: List["App"] = Relationship(
+        back_populates="owner", sa_relationship_kwargs={"cascade": "all, delete-orphan"}
+    )

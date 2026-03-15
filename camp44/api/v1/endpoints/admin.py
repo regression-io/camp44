@@ -182,6 +182,8 @@ def make_admin(
     # Add 'admin' role if not already present
     if "admin" not in (user.roles or []):
         user.roles = (user.roles or []) + ["admin"]
+    # Clear the demotion flag so the role sticks across logins
+    user.admin_removed = False
     db.commit()
     db.refresh(user)
     return user
@@ -207,6 +209,8 @@ def remove_admin(
     # Remove 'admin' role if present
     if "admin" in (user.roles or []):
         user.roles = [r for r in user.roles if r != "admin"]
+    # Prevent _ensure_admin_role from re-promoting on next login
+    user.admin_removed = True
     db.commit()
     db.refresh(user)
     return user

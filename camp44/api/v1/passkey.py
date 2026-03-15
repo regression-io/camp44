@@ -1,6 +1,7 @@
 """
 WebAuthn/Passkey authentication router.
 """
+
 import base64
 from typing import Dict, Optional
 
@@ -13,12 +14,13 @@ from camp44.api import deps
 from camp44.core.auth_tokens import create_token_pair
 from camp44.core.config import settings
 from camp44.core.webauthn import (
-    generate_passkey_registration_options,
-    verify_passkey_registration,
     generate_passkey_authentication_options,
+    generate_passkey_registration_options,
     verify_passkey_authentication,
+    verify_passkey_registration,
 )
 from camp44.crud import user as user_crud
+from camp44.crud.user import _ensure_admin_role
 
 router = APIRouter()
 
@@ -28,32 +30,38 @@ _CHALLENGES = {}
 
 class PasskeyRegOptionsRequest(BaseModel):
     """Request model for passkey registration options."""
+
     user_id: str
 
 
 class PasskeyRegOptionsResponse(BaseModel):
     """Response model for passkey registration options."""
+
     options: Dict
 
 
 class PasskeyRegVerifyRequest(BaseModel):
     """Request model for passkey registration verification."""
+
     user_id: str
     credential: Dict
 
 
 class PasskeyAuthOptionsRequest(BaseModel):
     """Request model for passkey authentication options."""
+
     email: Optional[str] = None
 
 
 class PasskeyAuthOptionsResponse(BaseModel):
     """Response model for passkey authentication options."""
+
     options: Dict
 
 
 class PasskeyAuthVerifyRequest(BaseModel):
     """Request model for passkey authentication verification."""
+
     credential: Dict
     email: Optional[str] = None
     credential_id: Optional[str] = None
@@ -61,6 +69,7 @@ class PasskeyAuthVerifyRequest(BaseModel):
 
 class PasskeyAuthVerifyResponse(BaseModel):
     """Response model for passkey authentication verification."""
+
     access_token: str
     token_type: str = "bearer"
     refresh_token: Optional[str] = None
@@ -69,9 +78,9 @@ class PasskeyAuthVerifyResponse(BaseModel):
 
 @router.post("/register/options", response_model=PasskeyRegOptionsResponse)
 def passkey_register_options(
-        request: PasskeyRegOptionsRequest,
-        current_user=Depends(deps.get_current_active_user),
-        db: Session = Depends(deps.get_db),
+    request: PasskeyRegOptionsRequest,
+    current_user=Depends(deps.get_current_active_user),
+    db: Session = Depends(deps.get_db),
 ):
     """
     Get passkey registration options.
@@ -80,7 +89,7 @@ def passkey_register_options(
     if str(current_user.id) != request.user_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="You can only register passkeys for your own account"
+            detail="You can only register passkeys for your own account",
         )
 
     # Generate registration options
@@ -88,12 +97,12 @@ def passkey_register_options(
         user_id=str(current_user.id),
         user_name=current_user.email,
         user_display_name=current_user.display_name or current_user.email,
-        existing_credentials=current_user.passkey_credentials
+        existing_credentials=current_user.passkey_credentials,
     )
 
     # Store challenge
     challenge_id = str(current_user.id)
-    _CHALLENGES[challenge_id] = base64.b64encode(options.challenge).decode('ascii')
+    _CHALLENGES[challenge_id] = base64.b64encode(options.challenge).decode("ascii")
 
     # Convert options to dictionary
     options_dict = options.model_dump()
@@ -106,9 +115,9 @@ def passkey_register_options(
 
 @router.post("/register/verify")
 def passkey_register_verify(
-        request: PasskeyRegVerifyRequest,
-        current_user=Depends(deps.get_current_active_user),
-        db: Session = Depends(deps.get_db),
+    request: PasskeyRegVerifyRequest,
+    current_user=Depends(deps.get_current_active_user),
+    db: Session = Depends(deps.get_db),
 ):
     """
     Verify passkey registration.
@@ -117,7 +126,7 @@ def passkey_register_verify(
     if str(current_user.id) != request.user_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="You can only register passkeys for your own account"
+            detail="You can only register passkeys for your own account",
         )
 
     # Get stored challenge
@@ -126,7 +135,7 @@ def passkey_register_verify(
     if not stored_challenge:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Registration challenge not found or expired"
+            detail="Registration challenge not found or expired",
         )
 
     # Clean up challenge
@@ -138,7 +147,7 @@ def passkey_register_verify(
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid credential format: {str(e)}"
+            detail=f"Invalid credential format: {str(e)}",
         )
 
     # Verify registration
@@ -155,9 +164,7 @@ def passkey_register_verify(
 
     # Update user
     user = user_crud.update(
-        db,
-        db_obj=current_user,
-        obj_in={"passkey_credentials": current_credentials}
+        db, db_obj=current_user, obj_in={"passkey_credentials": current_credentials}
     )
 
     return {"success": True, "credential_id": credential_data["id"]}
@@ -165,8 +172,7 @@ def passkey_register_verify(
 
 @router.post("/authenticate/options", response_model=PasskeyAuthOptionsResponse)
 def passkey_authenticate_options(
-        request: PasskeyAuthOptionsRequest,
-        db: Session = Depends(deps.get_db)
+    request: PasskeyAuthOptionsRequest, db: Session = Depends(deps.get_db)
 ):
     """
     Get passkey authentication options.
@@ -185,7 +191,7 @@ def passkey_authenticate_options(
 
     # Store challenge with user ID if known
     challenge_id = str(user.id) if user else "public"
-    _CHALLENGES[challenge_id] = base64.b64encode(options.challenge).decode('ascii')
+    _CHALLENGES[challenge_id] = base64.b64encode(options.challenge).decode("ascii")
 
     # Convert options to dictionary
     options_dict = options.model_dump()
@@ -198,8 +204,7 @@ def passkey_authenticate_options(
 
 @router.post("/authenticate/verify", response_model=PasskeyAuthVerifyResponse)
 def passkey_authenticate_verify(
-        request: PasskeyAuthVerifyRequest,
-        db: Session = Depends(deps.get_db)
+    request: PasskeyAuthVerifyRequest, db: Session = Depends(deps.get_db)
 ):
     """
     Verify passkey authentication.
@@ -214,7 +219,7 @@ def passkey_authenticate_verify(
         if not user or not user.passkey_credentials:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="User not found or no passkeys registered"
+                detail="User not found or no passkeys registered",
             )
 
         # Find matching credential
@@ -226,8 +231,10 @@ def passkey_authenticate_verify(
         # Search all users for credential - discoverable credentials flow
         # Create WebAuthn credential from request
         try:
-            auth_credential = AuthenticationCredential.model_validate(request.credential)
-            credential_id = base64.b64encode(auth_credential.id).decode('utf-8')
+            auth_credential = AuthenticationCredential.model_validate(
+                request.credential
+            )
+            credential_id = base64.b64encode(auth_credential.id).decode("utf-8")
 
             users = user_crud.get_users_with_passkey(db, credential_id=credential_id)
             if users and len(users) > 0:
@@ -241,13 +248,13 @@ def passkey_authenticate_verify(
         except Exception as e:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid credential format: {str(e)}"
+                detail=f"Invalid credential format: {str(e)}",
             )
 
     if not user or not credential_data:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="User or credential not found"
+            detail="User or credential not found",
         )
 
     # Get stored challenge
@@ -256,7 +263,7 @@ def passkey_authenticate_verify(
     if not stored_challenge:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Authentication challenge not found or expired"
+            detail="Authentication challenge not found or expired",
         )
 
     # Clean up challenge
@@ -271,7 +278,7 @@ def passkey_authenticate_verify(
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid credential format: {str(e)}"
+            detail=f"Invalid credential format: {str(e)}",
         )
 
     # Verify authentication
@@ -292,13 +299,18 @@ def passkey_authenticate_verify(
                 break
 
         # Update user
-        user_crud.update(db, db_obj=user, obj_in={"passkey_credentials": user.passkey_credentials})
+        user_crud.update(
+            db, db_obj=user, obj_in={"passkey_credentials": user.passkey_credentials}
+        )
 
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Passkey authentication failed: {str(e)}"
+            detail=f"Passkey authentication failed: {str(e)}",
         )
+
+    # Auto-promote admin-domain users on login (matches password auth path)
+    _ensure_admin_role(user, db)
 
     # Create token pair
     token_pair = create_token_pair(db, user)
