@@ -81,6 +81,9 @@ class Settings(BaseSettings):
     CAMP44_DISABLE_APPS: bool = False
     CAMP44_DISABLE_STRIPE: bool = False
 
+    # Testing mode (set TESTING=1 to enable test-only behaviour)
+    TESTING: bool = False
+
     # First Superuser
     FIRST_SUPERUSER: str = "admin@example.com"
     FIRST_SUPERUSER_PASSWORD: str = "password"

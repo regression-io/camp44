@@ -34,7 +34,7 @@ def create_token_pair(
         data={
             "sub": str(user.id),
             "tv": user.token_version,
-            "tenant_id": user.tenant_id or "default",
+            "tenant_id": user.tenant_id,
         }
     )
 

@@ -71,7 +71,7 @@ async def oidc_callback(request: Request, db: Session = Depends(deps.get_db)):
         oidc_sub = user_info.get("sub")
         email = user_info.get("email")
         name = user_info.get("name") or email
-        tenant_id = user_info.get("tenant_id", "default")
+        tenant_id = user_info.get("tenant_id")
 
         # Find or create user - use sync methods
         user = user_crud.get_by_oidc_sub(db, oidc_sub=oidc_sub)

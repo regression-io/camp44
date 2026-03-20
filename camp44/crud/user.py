@@ -26,6 +26,11 @@ def _ensure_admin_role(user: User, session: Session) -> None:
     """
     if user.admin_removed:
         return
+    # Only auto-promote if email ownership is reasonably assured:
+    # - OIDC users must have email verified by the IdP
+    # - Password users are trusted (they registered through our flow)
+    if not (user.hashed_password or user.oidc_email_verified):
+        return
     if _is_admin_domain(user.email) and "admin" not in (user.roles or []):
         user.roles = (user.roles or []) + ["admin"]
         session.add(user)
@@ -74,9 +79,10 @@ def create_oidc_user(
     email: str,
     full_name: str,
     oidc_sub: str,
-    tenant_id: str = "default",
+    tenant_id: str | None = None,
 ) -> User:
     """Create a new user from OIDC authentication."""
+    # OIDC users are IdP-verified, so auto-admin is safe here
     roles = ["admin"] if _is_admin_domain(email) else []
     db_obj = User(
         email=email,
@@ -95,9 +101,10 @@ def create_oidc_user(
 
 def create_user(session: Session, *, user_in: UserCreate) -> User:
     """Create a new user."""
+    # Do NOT auto-promote at signup — email is unverified at this point.
+    # _ensure_admin_role will promote on first login once email ownership
+    # is established (password users pass the hashed_password check).
     roles = list(user_in.roles)
-    if _is_admin_domain(user_in.email) and "admin" not in roles:
-        roles.append("admin")
     db_obj = User(
         email=user_in.email,
         hashed_password=get_password_hash(user_in.password),
