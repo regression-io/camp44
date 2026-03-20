@@ -1,5 +1,9 @@
+import hashlib
+import html
 import logging
 import secrets
+import threading
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 from urllib.parse import urlparse
@@ -20,6 +24,33 @@ from camp44.core.security import get_password_hash
 from camp44.crud import refresh_token as rt_crud
 from camp44.models.token import Token
 from camp44.models.user import User, UserCreate, UserRead
+
+# In-memory auth code store: code → {token_pair, created_at}
+# Single-use, 60-second TTL. Fine for single-instance deployments.
+_auth_codes: dict[str, dict] = {}
+_auth_codes_lock = threading.Lock()
+
+
+def _cleanup_expired_codes():
+    """Remove codes older than 60s."""
+    now = time.monotonic()
+    expired = [k for k, v in _auth_codes.items() if now - v["created_at"] > 60]
+    for k in expired:
+        del _auth_codes[k]
+
+
+def _create_auth_code(token_pair) -> str:
+    """Generate a short-lived, single-use authorization code."""
+    code = secrets.token_urlsafe(32)
+    with _auth_codes_lock:
+        _cleanup_expired_codes()
+        _auth_codes[code] = {
+            "access_token": token_pair.access_token,
+            "refresh_token": token_pair.refresh_token,
+            "created_at": time.monotonic(),
+        }
+    return code
+
 
 _ALLOWED_REDIRECT_HOSTS = {
     "app.scalemate.regression.io",
@@ -46,6 +77,34 @@ def _sanitize_redirect_url(url: str | None) -> str | None:
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+class CodeExchangeRequest(BaseModel):
+    """Request body for exchanging an auth code for tokens."""
+
+    code: str
+
+
+@router.post("/exchange-code", response_model=Token)
+def exchange_code(body: CodeExchangeRequest):
+    """
+    Exchange a short-lived authorization code for access + refresh tokens.
+
+    Codes are single-use and expire after 60 seconds.
+    """
+    with _auth_codes_lock:
+        _cleanup_expired_codes()
+        entry = _auth_codes.pop(body.code, None)
+
+    if not entry:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired authorization code",
+        )
+
+    return Token(
+        access_token=entry["access_token"], refresh_token=entry["refresh_token"]
+    )
 
 
 async def send_welcome_email(email: str, name: str, setup_url: str) -> bool:
@@ -130,8 +189,8 @@ class CheckoutResponse(BaseModel):
 @router.get("/login", response_class=HTMLResponse)
 async def login_page(
     request: Request,
-    from_url: str = None,
-    app_id: str = None,
+    from_url: str | None = None,
+    app_id: str | None = None,
 ):
     """
     Serves a simple HTML login form.
@@ -145,6 +204,10 @@ async def login_page(
         "from_url", "http://localhost:5173/"
     )
     app_id = app_id or request.query_params.get("app_id", "")
+
+    # Escape user-controlled values before interpolating into HTML
+    from_url = html.escape(from_url or "", quote=True)
+    app_id = html.escape(app_id or "", quote=True)
 
     # Create a simple login form HTML that posts directly to /auth/login
     login_form = f'''
@@ -216,38 +279,21 @@ def login(
 
     logger.info(f"Authentication successful for {form_data.username}")
     token_pair = create_token_pair(db, user)
-    access_token = token_pair.access_token
-    refresh_token = token_pair.refresh_token
 
     # Sanitize from_url to prevent open redirect / XSS
     from_url = _sanitize_redirect_url(from_url)
     if from_url:
-        logger.info(f"Creating JS-enhanced redirect page to {from_url}")
+        logger.info(f"Creating code-based redirect to {from_url}")
+        code = _create_auth_code(token_pair)
+        separator = "&" if "?" in from_url else "?"
+        redirect_url = f"{from_url}{separator}code={code}"
 
         html_content = f"""
         <!DOCTYPE html>
         <html>
         <head>
             <title>Authentication Successful</title>
-            <script>
-                // Store tokens in localStorage for SDK access
-                localStorage.setItem('token', '{access_token}');
-                localStorage.setItem('access_token', '{access_token}');
-                localStorage.setItem('auth_token', '{access_token}');
-                localStorage.setItem('base44_access_token', '{access_token}');
-                localStorage.setItem('refresh_token', '{refresh_token}');
-
-                // Also store in sessionStorage
-                sessionStorage.setItem('token', '{access_token}');
-                sessionStorage.setItem('access_token', '{access_token}');
-
-                // Set a cookie via JavaScript (in addition to the HTTP-only cookies)
-                document.cookie = "token=" + '{access_token}' + "; path=/; max-age=" + 900;
-                document.cookie = "access_token=Bearer " + '{access_token}' + "; path=/; max-age=" + 900;
-
-                // Redirect to the original URL
-                window.location.href = '{from_url}';
-            </script>
+            <meta http-equiv="refresh" content="0;url={redirect_url}">
         </head>
         <body>
             <h2>Authentication Successful</h2>
@@ -256,44 +302,9 @@ def login(
         </html>
         """
 
-        # Set cookies in the HTTP response as well
         response = HTMLResponse(content=html_content)
-
-        # HTTP-only secure cookie (most secure)
-        response.set_cookie(
-            key="access_token",
-            value=f"Bearer {access_token}",
-            httponly=True,
-            samesite="lax",
-            path="/",
-            max_age=900,  # 15 min, matching access token expiry
-        )
-
-        # JS-accessible token
-        response.set_cookie(
-            key="auth_token",
-            value=access_token,
-            httponly=False,  # Make accessible to JavaScript
-            samesite="lax",
-            path="/",
-            max_age=900,  # 15 min, matching access token expiry
-        )
-
-        # Base token name
-        response.set_cookie(
-            key="token",
-            value=access_token,
-            httponly=False,
-            samesite="lax",
-            path="/",
-            max_age=900,  # 15 min, matching access token expiry
-        )
-
-        # Authorization header for any fetch
-        response.headers["Authorization"] = f"Bearer {access_token}"
-
         logger.info(
-            f"Login successful for {form_data.username}, sending enhanced redirect page"
+            f"Login successful for {form_data.username}, redirecting with auth code"
         )
         return response
 
@@ -538,7 +549,9 @@ async def stripe_webhook(request: Request, db: Session = Depends(deps.get_db)):
             new_user = crud.user.create_user(session=db, user_in=user_in)
             new_user.stripe_customer_id = customer_id
             new_user.stripe_subscription_id = subscription_id
-            new_user.password_reset_token = reset_token
+            new_user.password_reset_token = hashlib.sha256(
+                reset_token.encode()
+            ).hexdigest()
             new_user.password_reset_expires = reset_expires
             db.add(new_user)
             db.commit()
@@ -681,16 +694,11 @@ def get_setup_link(
             message="Password already set. Please log in.",
         )
 
-    # Return the setup URL
-    frontend_url = (
-        getattr(settings, "FRONTEND_URL", None) or "https://app.scalemate.regression.io"
-    )
-    setup_url = f"{frontend_url}/set-password?token={user.password_reset_token}"
+    # Token is stored hashed — we can't reconstruct the URL. Direct user to email.
     return SetupLinkResponse(
         success=True,
-        setup_url=setup_url,
         email=user.email,
-        message="Ready to set password",
+        message="A password setup link was sent to your email. Please check your inbox.",
     )
 
 
@@ -755,7 +763,7 @@ def forgot_password(
     user = crud.user.get_user_by_email(session=db, email=request.email)
     if user and user.is_active:
         reset_token = secrets.token_urlsafe(32)
-        user.password_reset_token = reset_token
+        user.password_reset_token = hashlib.sha256(reset_token.encode()).hexdigest()
         user.password_reset_expires = datetime.now(timezone.utc) + timedelta(hours=24)
         db.add(user)
         db.commit()

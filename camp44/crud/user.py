@@ -1,3 +1,4 @@
+import hashlib
 from typing import Optional
 
 from sqlmodel import Session, select
@@ -69,7 +70,8 @@ def get_by_stripe_customer_id(session: Session, *, customer_id: str) -> Optional
 
 def get_by_password_reset_token(session: Session, *, token: str) -> Optional[User]:
     """Get a user by password reset token."""
-    statement = select(User).where(User.password_reset_token == token)
+    hashed = hashlib.sha256(token.encode()).hexdigest()
+    statement = select(User).where(User.password_reset_token == hashed)
     return session.exec(statement).first()
 
 
@@ -156,13 +158,29 @@ def update(session: Session, *, db_obj: User, obj_in: dict) -> User:
 
 
 def get_users_with_passkey(session: Session, *, credential_id: str) -> list[User]:
-    """Find users that have a specific passkey credential ID registered."""
-    all_users = session.exec(select(User)).all()
-    matched = []
-    for u in all_users:
-        if u.passkey_credentials:
-            for cred in u.passkey_credentials:
-                if cred.get("id") == credential_id:
-                    matched.append(u)
-                    break
-    return matched
+    """
+    Find users that have a specific passkey credential ID registered.
+
+    Uses PostgreSQL JSONB containment query instead of scanning all users.
+    Falls back to Python scan for non-PostgreSQL backends (e.g., SQLite in tests).
+    """
+    import json
+
+    # Try PostgreSQL JSONB containment operator
+    try:
+        cred_json = json.dumps([{"id": credential_id}])
+        statement = select(User).where(
+            User.passkey_credentials.op("@>")(cred_json)  # type: ignore[union-attr]
+        )
+        return list(session.exec(statement).all())
+    except Exception:
+        # Fallback for SQLite (tests) — scan in Python
+        all_users = session.exec(select(User)).all()
+        matched = []
+        for u in all_users:
+            if u.passkey_credentials:
+                for cred in u.passkey_credentials:
+                    if cred.get("id") == credential_id:
+                        matched.append(u)
+                        break
+        return matched

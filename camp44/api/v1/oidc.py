@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
 from camp44.api import deps
+from camp44.api.v1.endpoints.auth import _create_auth_code
 from camp44.core.auth_tokens import create_token_pair
 from camp44.core.config import settings
 from camp44.core.oauth import oauth
@@ -109,17 +110,12 @@ async def oidc_callback(request: Request, db: Session = Depends(deps.get_db)):
         # Get the frontend callback URL from session (stored during /login)
         from_url = request.session.pop("oidc_from_url", None)
 
+        code = _create_auth_code(token_pair)
         if from_url:
             separator = "&" if "?" in from_url else "?"
-            redirect_url = (
-                f"{from_url}{separator}token={token_pair.access_token}"
-                f"&refresh_token={token_pair.refresh_token}"
-            )
+            redirect_url = f"{from_url}{separator}code={code}"
         else:
-            redirect_url = (
-                f"/auth-callback?token={token_pair.access_token}"
-                f"&refresh_token={token_pair.refresh_token}"
-            )
+            redirect_url = f"/auth-callback?code={code}"
         return RedirectResponse(
             url=redirect_url, status_code=status.HTTP_307_TEMPORARY_REDIRECT
         )
