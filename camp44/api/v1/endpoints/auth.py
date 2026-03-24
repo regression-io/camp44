@@ -262,6 +262,15 @@ def login(
     """Logs a user in."""
     logger.info(f"POST /login request for username={form_data.username}")
 
+    # Check if user exists but has no password (migrated account)
+    existing_user = crud.user.get_user_by_email(session=db, email=form_data.username)
+    if existing_user and not existing_user.hashed_password:
+        logger.info(f"Login attempt for passwordless account {form_data.username}")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="password_not_set",
+        )
+
     user = crud.user.authenticate(
         session=db, email=form_data.username, password=form_data.password
     )
