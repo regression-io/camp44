@@ -56,6 +56,9 @@ _ALLOWED_REDIRECT_HOSTS = {
     "app.scalemate.regression.io",
     "gtm.scalemate.regression.io",
     "scalemate.regression.io",
+    "app.scalemate.me",
+    "gtm.scalemate.me",
+    "scalemate.me",
     "localhost",
 }
 
