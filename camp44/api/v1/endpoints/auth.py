@@ -422,7 +422,7 @@ def create_checkout_session(
             ],
             mode="subscription",
             subscription_data={
-                "trial_period_days": 7,
+                # trial_period_days removed — F31 manages trial at app level
                 "metadata": {
                     "plan": checkout_request.plan,
                     "customer_name": checkout_request.name,
