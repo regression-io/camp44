@@ -744,10 +744,11 @@ def set_password(
             detail="Reset token has expired",
         )
 
-    # Update password and clear reset token
+    # Update password, clear reset token, and activate user
     user.hashed_password = get_password_hash(request.password)
     user.password_reset_token = None
     user.password_reset_expires = None
+    user.is_active = True
     db.add(user)
     db.commit()
 
