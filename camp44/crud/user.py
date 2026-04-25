@@ -95,6 +95,8 @@ def create_oidc_user(
         hashed_password=None,  # OIDC users don't have passwords
         roles=roles,
     )
+    if db_obj.tenant_id is None:
+        db_obj.tenant_id = str(db_obj.id)
     session.add(db_obj)
     session.commit()
     session.refresh(db_obj)
@@ -113,6 +115,7 @@ def create_user(session: Session, *, user_in: UserCreate) -> User:
         display_name=user_in.display_name,
         roles=roles,
     )
+    db_obj.tenant_id = str(db_obj.id)
     session.add(db_obj)
     session.commit()
     session.refresh(db_obj)
