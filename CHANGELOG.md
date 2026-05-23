@@ -19,6 +19,8 @@ All notable changes to this project will be documented in this file.
   - Backward compatible: old tokens without `tv` claim default to `tv=0`
 
 ### Security
+- **P0: Unauthenticated admin self-promotion via `/auth/register`** — `UserCreate` exposed a `roles` field that `crud.user.create_user` persisted verbatim, letting any unauthenticated client POST `{"roles":["admin"]}` and become admin in one request. Removed `roles` from `UserCreate`; `create_user` now hard-codes `roles=[]`; auto-promotion remains gated behind `_ensure_admin_role` at login time. Audit existing admins with:
+  `SELECT id, email, created_at FROM users WHERE 'admin' = ANY(roles) AND oidc_sub IS NULL AND hashed_password IS NOT NULL` and prune anything that wasn't manually granted. See `scalemate-service/docs/security/2026-05-24-audit.md` P0-1.
 - **JWT secret startup validation**: App refuses to start in production with insecure default JWT_SECRET_KEY; warns in dev/SQLite mode
 - **Superuser seeding guard**: Skips creating default `admin@example.com`/`password` superuser when credentials are still defaults
 - **OIDC from_url open redirect**: `from_url` parameter now validated via `_sanitize_redirect_url` before storing in session

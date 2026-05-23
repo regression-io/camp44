@@ -104,16 +104,20 @@ def create_oidc_user(
 
 
 def create_user(session: Session, *, user_in: UserCreate) -> User:
-    """Create a new user."""
-    # Do NOT auto-promote at signup — email is unverified at this point.
-    # _ensure_admin_role will promote on first login once email ownership
-    # is established (password users pass the hashed_password check).
-    roles = list(user_in.roles)
+    """
+    Create a new user.
+
+    SECURITY: Never trust client-supplied roles here. /auth/register is a
+    public endpoint, so anything that flows into ``User.roles`` from
+    ``user_in`` is an unauthenticated privilege-escalation vector. Roles are
+    set server-side only — empty at signup, then ``_ensure_admin_role`` may
+    promote on first login if the email belongs to an admin domain.
+    """
     db_obj = User(
         email=user_in.email,
         hashed_password=get_password_hash(user_in.password),
         display_name=user_in.display_name,
-        roles=roles,
+        roles=[],
     )
     db_obj.tenant_id = str(db_obj.id)
     session.add(db_obj)

@@ -11,7 +11,11 @@ class UserCreate(SQLModel):
     email: str
     password: str
     display_name: str | None = None
-    roles: List[str] = []
+    # NOTE: `roles` intentionally NOT exposed here. The public /auth/register
+    # endpoint accepts this schema unauthenticated; allowing clients to set
+    # roles would let anyone self-promote to admin in a single request.
+    # Roles are assigned server-side only (see crud.user.create_user and
+    # crud.user._ensure_admin_role).
 
 
 # Properties to return via API, id is required
