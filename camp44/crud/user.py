@@ -22,15 +22,26 @@ def _ensure_admin_role(user: User, session: Session) -> None:
     """
     Add admin role if user's email domain is in ADMIN_EMAIL_DOMAINS.
 
+    SECURITY: Auto-promotion requires *verified* ownership of the email
+    address — only OIDC-authenticated users qualify, because the IdP
+    confirmed the email. Password-signup users do **not** qualify:
+    "the user knows their own password" is not proof of email ownership
+    when registration is open and no verification email is required. An
+    attacker registering as ``admin@<our-domain>`` would otherwise become
+    admin on first password login.
+
+    Existing password admins are unaffected — the function only adds the
+    role when it isn't present. To grant admin to a password user, use the
+    explicit ``/admin/users/{id}/promote`` endpoint (admin-only).
+
     Skips users whose admin privileges were explicitly removed via the
     remove-admin endpoint (``user.admin_removed is True``).
+
+    See scalemate-service/docs/security/2026-05-24-audit.md P1-6.
     """
     if user.admin_removed:
         return
-    # Only auto-promote if email ownership is reasonably assured:
-    # - OIDC users must have email verified by the IdP
-    # - Password users are trusted (they registered through our flow)
-    if not (user.hashed_password or user.oidc_email_verified):
+    if not user.oidc_email_verified:
         return
     if _is_admin_domain(user.email) and "admin" not in (user.roles or []):
         user.roles = (user.roles or []) + ["admin"]

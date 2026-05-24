@@ -3,6 +3,10 @@ WebAuthn/Passkey authentication router.
 """
 
 import base64
+import json
+import logging
+import threading
+from datetime import datetime, timedelta, timezone
 from typing import Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -22,10 +26,98 @@ from camp44.core.webauthn import (
 from camp44.crud import user as user_crud
 from camp44.crud.user import _ensure_admin_role
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
-# Session storage for challenges - in production use Redis or another secure storage
-_CHALLENGES = {}
+# ---------------------------------------------------------------------------
+# In-process challenge store
+# ---------------------------------------------------------------------------
+# SECURITY (Audit P1-2): the previous implementation was a bare module-level
+# ``_CHALLENGES = {}`` dict with no TTL, no single-use semantics, and a single
+# ``"public"`` key shared across every concurrent discoverable-auth ceremony
+# (so two simultaneous logins overwrote each other). Replays were unbounded;
+# concurrent discoverable auths raced; multi-worker deploys silently failed.
+#
+# This replacement adds:
+#   * TTL — challenges expire 5 minutes after issue
+#   * single-use — pop_* deletes on success; verify can never reuse a value
+#   * a threading.Lock — protects every map access against intra-process race
+#   * per-challenge keying for discoverable auth — eliminates the "public"
+#     collision; each pending discoverable challenge has its own slot keyed
+#     by the challenge value itself
+#
+# What this does NOT fix:
+#   * Cross-worker / cross-replica deployments. The store is process-local,
+#     so a challenge generated on worker A is invisible to worker B. Standalone
+#     camp44 consumers running multiple workers MUST either pin sessions to a
+#     single worker, run a single worker, or replace this store with a shared
+#     backend. scalemate-service already does the latter — its
+#     ``scalemate_service.services.challenge_store`` is DB-backed — and does
+#     not register camp44's passkey router, so this caveat does not apply in
+#     the ScaleMate deployment.
+# ---------------------------------------------------------------------------
+
+_CHALLENGE_TTL = timedelta(minutes=5)
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _b64url_decode(s: str) -> bytes:
+    """Decode a base64url string (with or without padding) to bytes."""
+    pad = "=" * (-len(s) % 4)
+    return base64.urlsafe_b64decode(s + pad)
+
+
+class _ChallengeStore:
+    """Thread-safe in-process challenge store with TTL and single-use semantics."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        # (user_id_str, ceremony) -> (challenge_b64, expiry)
+        self._per_user: Dict[tuple, tuple] = {}
+        # challenge_b64 -> expiry  (keyed by challenge so concurrent
+        # discoverable ceremonies cannot overwrite each other)
+        self._discoverable: Dict[str, datetime] = {}
+
+    def _purge_expired_locked(self) -> None:
+        now = _utcnow()
+        self._per_user = {k: v for k, v in self._per_user.items() if v[1] > now}
+        self._discoverable = {k: v for k, v in self._discoverable.items() if v > now}
+
+    def store_user(self, user_id: str, ceremony: str, challenge_b64: str) -> None:
+        with self._lock:
+            self._purge_expired_locked()
+            self._per_user[(user_id, ceremony)] = (
+                challenge_b64,
+                _utcnow() + _CHALLENGE_TTL,
+            )
+
+    def store_discoverable(self, challenge_b64: str) -> None:
+        with self._lock:
+            self._purge_expired_locked()
+            self._discoverable[challenge_b64] = _utcnow() + _CHALLENGE_TTL
+
+    def pop_user(self, user_id: str, ceremony: str) -> Optional[str]:
+        """Atomically remove and return the challenge if unexpired; else None."""
+        with self._lock:
+            entry = self._per_user.pop((user_id, ceremony), None)
+            if entry is None:
+                return None
+            challenge_b64, expiry = entry
+            if expiry <= _utcnow():
+                return None
+            return challenge_b64
+
+    def pop_discoverable(self, challenge_b64: str) -> bool:
+        """Atomically remove the discoverable challenge if present + unexpired."""
+        with self._lock:
+            expiry = self._discoverable.pop(challenge_b64, None)
+            return expiry is not None and expiry > _utcnow()
+
+
+_store = _ChallengeStore()
 
 
 class PasskeyRegOptionsRequest(BaseModel):
@@ -100,15 +192,15 @@ def passkey_register_options(
         existing_credentials=current_user.passkey_credentials,
     )
 
-    # Store challenge
-    challenge_id = str(current_user.id)
-    _CHALLENGES[challenge_id] = base64.b64encode(options.challenge).decode("ascii")
+    # Store challenge — TTL + single-use, keyed by (user_id, "registration")
+    challenge_b64 = base64.b64encode(options.challenge).decode("ascii")
+    _store.store_user(str(current_user.id), "registration", challenge_b64)
 
     # Convert options to dictionary
     options_dict = options.model_dump()
 
     # Base64 encode challenge for client
-    options_dict["challenge"] = _CHALLENGES[challenge_id]
+    options_dict["challenge"] = challenge_b64
 
     return PasskeyRegOptionsResponse(options=options_dict)
 
@@ -129,17 +221,13 @@ def passkey_register_verify(
             detail="You can only register passkeys for your own account",
         )
 
-    # Get stored challenge
-    challenge_id = str(current_user.id)
-    stored_challenge = _CHALLENGES.get(challenge_id)
+    # Atomically retrieve and consume the challenge (TTL + single-use).
+    stored_challenge = _store.pop_user(str(current_user.id), "registration")
     if not stored_challenge:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Registration challenge not found or expired",
         )
-
-    # Clean up challenge
-    del _CHALLENGES[challenge_id]
 
     # Create WebAuthn credential from request
     try:
@@ -189,15 +277,21 @@ def passkey_authenticate_options(
     # Generate authentication options
     options = generate_passkey_authentication_options(user_credentials=user_credentials)
 
-    # Store challenge with user ID if known
-    challenge_id = str(user.id) if user else "public"
-    _CHALLENGES[challenge_id] = base64.b64encode(options.challenge).decode("ascii")
+    # Store challenge. For email-based auth we key by user id; for
+    # discoverable auth (no email) we key by the challenge value itself, so
+    # concurrent ceremonies cannot overwrite each other (previous behavior
+    # used a shared "public" slot and one login would invalidate another).
+    challenge_b64 = base64.b64encode(options.challenge).decode("ascii")
+    if user is not None:
+        _store.store_user(str(user.id), "authentication", challenge_b64)
+    else:
+        _store.store_discoverable(challenge_b64)
 
     # Convert options to dictionary
     options_dict = options.model_dump()
 
     # Base64 encode challenge for client
-    options_dict["challenge"] = _CHALLENGES[challenge_id]
+    options_dict["challenge"] = challenge_b64
 
     return PasskeyAuthOptionsResponse(options=options_dict)
 
@@ -257,20 +351,32 @@ def passkey_authenticate_verify(
             detail="User or credential not found",
         )
 
-    # Get stored challenge
-    challenge_id = str(user.id)
-    stored_challenge = _CHALLENGES.get(challenge_id) or _CHALLENGES.get("public")
-    if not stored_challenge:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Authentication challenge not found or expired",
-        )
-
-    # Clean up challenge
-    if challenge_id in _CHALLENGES:
-        del _CHALLENGES[challenge_id]
-    if "public" in _CHALLENGES:
-        del _CHALLENGES["public"]
+    # Recover and consume the challenge. Two paths:
+    #   * email-based: stored under (user.id, "authentication") at /options
+    #   * discoverable: stored keyed by challenge value itself. We extract the
+    #     value the client claims to have signed from clientDataJSON and look
+    #     it up in the pending discoverable set. The webauthn library then
+    #     re-verifies the assertion signature against that same value below.
+    stored_challenge = _store.pop_user(str(user.id), "authentication")
+    if stored_challenge is None:
+        # Discoverable path — find the challenge the client signed.
+        try:
+            client_data = json.loads(
+                AuthenticationCredential.model_validate(
+                    request.credential
+                ).response.client_data_json.decode("utf-8")
+            )
+            claimed_b64url = client_data.get("challenge", "")
+            claimed_bytes = _b64url_decode(claimed_b64url)
+            claimed_b64 = base64.b64encode(claimed_bytes).decode("ascii")
+        except Exception:
+            claimed_b64 = ""
+        if not claimed_b64 or not _store.pop_discoverable(claimed_b64):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Authentication challenge not found or expired",
+            )
+        stored_challenge = claimed_b64
 
     # Create WebAuthn credential from request
     try:
