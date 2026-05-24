@@ -847,20 +847,29 @@ def refresh(
     """
     _INVALID = "Invalid or expired refresh token"
 
-    stored = rt_crud.get_by_token(db, raw_token=body.refresh_token)
-    if not stored:
+    # Atomic consume: exactly one concurrent request with the same raw token
+    # wins the UPDATE; the rest get None and fall into reuse-detection below.
+    # This closes the TOCTOU race that previously let two simultaneous
+    # refreshes both mint a replacement pair from a single token.
+    stored = rt_crud.consume(db, raw_token=body.refresh_token)
+    if stored is None:
+        # Either the token doesn't exist, was already revoked, or we lost
+        # a concurrent race. Distinguish "unknown" (just 401) from "reuse
+        # of a previously-consumed token" (revoke the entire family).
+        existing = rt_crud.get_by_token(db, raw_token=body.refresh_token)
+        if existing is not None:
+            rt_crud.revoke_family(db, family_id=existing.family_id)
+            db.commit()
+            logger.warning(
+                "Refresh token reuse detected for user %s, family %s",
+                existing.user_id,
+                existing.family_id,
+            )
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=_INVALID)
 
-    # Reuse detection: token already consumed → revoke the whole family
-    if stored.is_revoked:
-        rt_crud.revoke_family(db, family_id=stored.family_id)
-        db.commit()
-        logger.warning(
-            "Refresh token reuse detected for user %s, family %s",
-            stored.user_id,
-            stored.family_id,
-        )
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=_INVALID)
+    # From here on `stored` is the just-consumed row inside our open
+    # transaction. Any post-check failure still commits the consume (the
+    # token was about to die anyway) and 401s the client.
 
     expires = (
         stored.expires_at.replace(tzinfo=timezone.utc)
@@ -868,10 +877,12 @@ def refresh(
         else stored.expires_at
     )
     if expires < datetime.now(timezone.utc):
+        db.commit()  # persist the consume even on expiry-401
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=_INVALID)
 
     user = crud.user.get(db, id=stored.user_id)
     if not user or not user.is_active:
+        db.commit()
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=_INVALID)
 
     # Version mismatch → user's tokens were revoked globally
@@ -880,9 +891,6 @@ def refresh(
         db.commit()
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=_INVALID)
 
-    # Atomically: consume old token + create new pair in one commit
-    stored.is_revoked = True
-    db.add(stored)
     # create_token_pair flushes the new token then commits both ops together
     token_pair = create_token_pair(db, user, family_id=stored.family_id)
     return token_pair

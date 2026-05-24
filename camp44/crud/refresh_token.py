@@ -2,6 +2,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Tuple
 
+from sqlalchemy import update
 from sqlmodel import Session, select
 
 from camp44.core.config import settings
@@ -16,7 +17,8 @@ def create(
     token_version: int,
     family_id: Optional[uuid.UUID] = None,
 ) -> Tuple[str, RefreshToken]:
-    """Create a new refresh token, returning (raw_token, db_obj).
+    """
+    Create a new refresh token, returning (raw_token, db_obj).
 
     NOTE: Does NOT commit — caller is responsible for transaction boundary.
     """
@@ -36,9 +38,7 @@ def create(
     return raw_token, db_obj
 
 
-def get_by_token(
-    session: Session, *, raw_token: str
-) -> Optional[RefreshToken]:
+def get_by_token(session: Session, *, raw_token: str) -> Optional[RefreshToken]:
     """Look up a refresh token by its raw value (hashed for lookup)."""
     token_hash = hash_refresh_token(raw_token)
     return session.exec(
@@ -46,8 +46,42 @@ def get_by_token(
     ).first()
 
 
+def consume(session: Session, *, raw_token: str) -> Optional[RefreshToken]:
+    """
+    Atomically mark a refresh token revoked iff it wasn't already.
+
+    Returns the row if we won the race (the token was fresh and is now
+    consumed in this transaction), or None if it didn't exist, was already
+    revoked, or another concurrent transaction beat us to it.
+
+    SECURITY: the read-then-write pattern in /auth/refresh used to allow two
+    concurrent requests holding the same raw token to both see
+    ``is_revoked=False`` and both mint a replacement pair, defeating family
+    reuse-detection. The atomic ``UPDATE ... WHERE is_revoked=false
+    RETURNING *`` here guarantees that exactly one concurrent caller wins;
+    the rest receive None and the /auth/refresh handler routes them into the
+    family-revocation path. Works on both PostgreSQL and SQLite.
+
+    NOTE: Does NOT commit — caller is responsible for transaction boundary.
+    """
+    token_hash = hash_refresh_token(raw_token)
+    stmt = (
+        update(RefreshToken)
+        .where(
+            RefreshToken.token_hash == token_hash,
+            RefreshToken.is_revoked == False,  # noqa: E712
+        )
+        .values(is_revoked=True)
+        .returning(RefreshToken)
+        .execution_options(synchronize_session="fetch")
+    )
+    result = session.execute(stmt)
+    return result.scalars().first()
+
+
 def revoke_family(session: Session, *, family_id: uuid.UUID) -> int:
-    """Mark all tokens in a family as revoked. Returns count.
+    """
+    Mark all tokens in a family as revoked. Returns count.
 
     NOTE: Does NOT commit — caller is responsible for transaction boundary.
     """
@@ -64,7 +98,8 @@ def revoke_family(session: Session, *, family_id: uuid.UUID) -> int:
 
 
 def revoke_user_tokens(session: Session, *, user_id: uuid.UUID) -> int:
-    """Revoke all refresh tokens for a user. Returns count.
+    """
+    Revoke all refresh tokens for a user. Returns count.
 
     NOTE: Does NOT commit — caller is responsible for transaction boundary.
     """
