@@ -110,14 +110,28 @@ _INSECURE_JWT_SECRETS = {
 
 
 def validate_production_settings():
-    """Refuse to start with insecure defaults in production."""
+    """
+    Refuse to start with insecure defaults in any non-test environment.
+
+    Previously this guard treated ``localhost`` in DATABASE_URL as proof of a
+    dev environment and downgraded an insecure JWT_SECRET_KEY to a warning.
+    That bypassed the check on real deployments that happen to reach Postgres
+    via a sidecar / pgbouncer / kubectl port-forward on 127.0.0.1, leaving
+    them booting with the literal ``"test_secret"`` and accepting forged
+    JWTs. The exception is now scoped to test-only contexts: explicit
+    ``TESTING=1`` or a sqlite DB URL. Everything else fails closed.
+    See scalemate-service/docs/security/2026-05-24-audit.md P1-1.
+    """
+    import os
     import warnings
 
-    is_local = "localhost" in settings.DATABASE_URL or settings.DATABASE_URL.startswith(
-        "sqlite"
-    )
+    is_test = os.environ.get("TESTING", "").lower() in (
+        "1",
+        "true",
+        "yes",
+    ) or settings.DATABASE_URL.startswith("sqlite")
     if settings.JWT_SECRET_KEY in _INSECURE_JWT_SECRETS:
-        if is_local:
+        if is_test:
             warnings.warn(
                 "JWT_SECRET_KEY is using an insecure default. "
                 "Set it in .env for production.",
@@ -125,10 +139,13 @@ def validate_production_settings():
             )
         else:
             raise RuntimeError(
-                "FATAL: JWT_SECRET_KEY is set to an insecure default. "
-                "Set a strong, unique JWT_SECRET_KEY in your .env file."
+                "FATAL: JWT_SECRET_KEY is set to an insecure default "
+                f"({settings.JWT_SECRET_KEY!r}). Set a strong, unique "
+                "JWT_SECRET_KEY in your .env file. "
+                "(Set TESTING=1 or use a sqlite:// DATABASE_URL to bypass "
+                "this check in test environments.)"
             )
-    if not is_local and settings.FIRST_SUPERUSER_PASSWORD == "password":
+    if not is_test and settings.FIRST_SUPERUSER_PASSWORD == "password":
         raise RuntimeError(
             "FATAL: FIRST_SUPERUSER_PASSWORD is 'password'. "
             "Set a strong password in your .env file."
