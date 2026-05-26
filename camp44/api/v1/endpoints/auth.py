@@ -11,7 +11,7 @@ from urllib.parse import urlparse
 import httpx
 import stripe
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.orm import Session
@@ -20,6 +20,7 @@ from camp44 import crud
 from camp44.api import deps
 from camp44.core.auth_tokens import create_token_pair
 from camp44.core.config import settings
+from camp44.core.rate_limit import limiter
 from camp44.core.security import get_password_hash
 from camp44.crud import refresh_token as rt_crud
 from camp44.models.token import Token
@@ -237,12 +238,13 @@ async def login_page(
 
 
 @router.post("/login", response_model=Token)
+@limiter.limit("10/minute")
 def login(
+    request: Request,
     db: Session = Depends(deps.get_db),
     form_data: OAuth2PasswordRequestForm = Depends(),
     from_url: str = Form(None),
     app_id: str = Form(None),
-    request: Request = None,
 ) -> Token:
     """Logs a user in."""
     logger.info(f"POST /login request for username={form_data.username}")
@@ -274,33 +276,20 @@ def login(
     logger.info(f"Authentication successful for {form_data.username}")
     token_pair = create_token_pair(db, user)
 
-    # Sanitize from_url to prevent open redirect / XSS
+    # SECURITY (Audit P1-7): redirect via HTTP 303, never by interpolating a
+    # URL into an HTML meta-refresh. _sanitize_redirect_url() already enforces
+    # the host allowlist; using RedirectResponse means even a sanitizer bypass
+    # becomes only an open-redirect, never HTML injection.
     from_url = _sanitize_redirect_url(from_url)
     if from_url:
         logger.info(f"Creating code-based redirect to {from_url}")
         code = _create_auth_code(token_pair)
         separator = "&" if "?" in from_url else "?"
         redirect_url = f"{from_url}{separator}code={code}"
-
-        html_content = f"""
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <title>Authentication Successful</title>
-            <meta http-equiv="refresh" content="0;url={redirect_url}">
-        </head>
-        <body>
-            <h2>Authentication Successful</h2>
-            <p>Redirecting to application...</p>
-        </body>
-        </html>
-        """
-
-        response = HTMLResponse(content=html_content)
         logger.info(
             f"Login successful for {form_data.username}, redirecting with auth code"
         )
-        return response
+        return RedirectResponse(url=redirect_url, status_code=303)
 
     logger.info(f"Returning token for {form_data.username} without redirect")
     return token_pair
@@ -577,10 +566,12 @@ def get_setup_link(
 
 
 @router.post("/set-password", response_model=SetPasswordResponse)
+@limiter.limit("10/minute")
 def set_password(
+    request: Request,
     *,
     db: Session = Depends(deps.get_db),
-    request: SetPasswordRequest,
+    body: SetPasswordRequest,
 ) -> SetPasswordResponse:
     """
     Set password using a reset token.
@@ -588,7 +579,7 @@ def set_password(
     This is used after Stripe checkout to allow users to set their password.
     """
     # Find user by reset token
-    user = crud.user.get_by_password_reset_token(session=db, token=request.token)
+    user = crud.user.get_by_password_reset_token(session=db, token=body.token)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -607,7 +598,7 @@ def set_password(
         )
 
     # Update password, clear reset token, and activate user
-    user.hashed_password = get_password_hash(request.password)
+    user.hashed_password = get_password_hash(body.password)
     user.password_reset_token = None
     user.password_reset_expires = None
     user.is_active = True
@@ -625,17 +616,19 @@ class ForgotPasswordRequest(BaseModel):
 
 
 @router.post("/forgot-password")
+@limiter.limit("5/minute")
 def forgot_password(
+    request: Request,
     *,
     db: Session = Depends(deps.get_db),
-    request: ForgotPasswordRequest,
+    body: ForgotPasswordRequest,
 ):
     """
     Request a password reset email.
 
     Always returns 200 regardless of whether the email exists (prevents enumeration).
     """
-    user = crud.user.get_user_by_email(session=db, email=request.email)
+    user = crud.user.get_user_by_email(session=db, email=body.email)
     if user and user.is_active:
         reset_token = secrets.token_urlsafe(32)
         user.password_reset_token = hashlib.sha256(reset_token.encode()).hexdigest()

@@ -2,6 +2,8 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 
 from camp44.api.v1 import oidc, passkey
 from camp44.api.v1.endpoints import (
@@ -20,6 +22,7 @@ from camp44.api.v1.endpoints import (
 from camp44.core.config import settings, validate_production_settings
 from camp44.core.errors import generic_exception_handler, http_exception_handler
 from camp44.core.middleware import SecurityHeadersMiddleware
+from camp44.core.rate_limit import limiter
 from camp44.core.tracing import setup_tracer
 from camp44.db.initial_data import seed_initial_data
 from camp44.db.session import create_db_and_tables
@@ -40,18 +43,31 @@ async def lifespan(app: FastAPI):
     yield
 
 
+def _rate_limit_exceeded(request: Request, exc: RateLimitExceeded):
+    from fastapi.responses import JSONResponse
+
+    return JSONResponse(
+        status_code=429,
+        content={"detail": "Too many requests. Please try again shortly."},
+        headers={"Retry-After": "60"},
+    )
+
+
 app = FastAPI(
     lifespan=lifespan,
     redirect_slashes=False,  # Fail fast on wrong URLs instead of 307 (which drops auth headers)
     exception_handlers={
         HTTPException: http_exception_handler,
         Exception: generic_exception_handler,
+        RateLimitExceeded: _rate_limit_exceeded,
     },
     title="Camp44",
     description="A FastAPI service to mirror and replace the Base44 cloud API.",
     version="0.1.0",
 )
 
+app.state.limiter = limiter
+app.add_middleware(SlowAPIMiddleware)
 app.add_middleware(TenantMiddleware)
 if settings.OAUTH_ENABLED:
     app.add_middleware(OIDCTenantMiddleware)
@@ -135,6 +151,8 @@ async def redirect_login(request: Request):
 async def handle_login(request: Request):
     """
     Handle POST requests to /login and forward them to the auth handler.
+
+    Rate limit is applied via the inner ``login()`` call's decorator.
     """
     from fastapi.security import OAuth2PasswordRequestForm
     from sqlmodel import Session

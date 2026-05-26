@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Security
+- **P1-7 login no longer HTML-interpolates `from_url` into a meta-refresh**: `POST /auth/login` now returns `303 See Other` via `RedirectResponse` instead of an HTML page with `<meta http-equiv="refresh" content="0;url={from_url}">`. The host allowlist in `_sanitize_redirect_url` is unchanged, but a future sanitizer bypass would now only be an open-redirect (still bad, but bounded) instead of arbitrary HTML injection. Test at `tests/rate_limit/test_login_redirect.py`. See `scalemate-service/docs/security/2026-05-24-audit.md` §P1-7.
+- **P1-4 rate limiting on auth surfaces** (`slowapi`): `POST /auth/login` 10/min/IP, `POST /auth/forgot-password` 5/min/IP, `POST /auth/set-password` 10/min/IP, `POST /auth/passkey/authenticate/options` 10/min/IP, `POST /auth/passkey/authenticate/verify` 10/min/IP. Anonymous brute-force, password-reset enumeration, and passkey-authentication-options enumeration are now bounded. Limiter is in-memory (single-replica deploys) and disabled when `TESTING=1` so the test suite isn't rate-limited. New tests in `tests/rate_limit/` (isolated from the broken parent DB autouse fixture). Body-param `request: SomeModel` renamed to `body: SomeModel` on the decorated handlers so the slowapi-required `request: Request` (FastAPI) parameter doesn't collide — internal-only, no API contract change. Composite IP+email keys and limits on the auth-required passkey `/register/*` endpoints are deferred follow-ups. See `scalemate-service/docs/security/2026-05-24-audit.md` §P1-4 and `scalemate-service/docs/bugs/P1-4/diagnosis.md`.
+
 ### Fixed
 - **Admin user list 500 error**: `GET /api/admin/users` crashed with `ResponseValidationError` when users had `NULL` roles in DB. Added default `[]` to `UserRead.roles` schema field
 - **OIDC callback error returns JSON instead of redirect**: When OIDC authentication failed, the callback returned a JSON error response to the browser, leaving users stranded on a raw JSON page. Now redirects back to the frontend login page with `?error=auth_failed` param

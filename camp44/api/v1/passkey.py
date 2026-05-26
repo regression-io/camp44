@@ -9,7 +9,7 @@ import threading
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from webauthn.helpers.structs import AuthenticationCredential, RegistrationCredential
@@ -17,6 +17,7 @@ from webauthn.helpers.structs import AuthenticationCredential, RegistrationCrede
 from camp44.api import deps
 from camp44.core.auth_tokens import create_token_pair
 from camp44.core.config import settings
+from camp44.core.rate_limit import limiter
 from camp44.core.webauthn import (
     generate_passkey_authentication_options,
     generate_passkey_registration_options,
@@ -259,8 +260,11 @@ def passkey_register_verify(
 
 
 @router.post("/authenticate/options", response_model=PasskeyAuthOptionsResponse)
+@limiter.limit("10/minute")
 def passkey_authenticate_options(
-    request: PasskeyAuthOptionsRequest, db: Session = Depends(deps.get_db)
+    request: Request,
+    body: PasskeyAuthOptionsRequest,
+    db: Session = Depends(deps.get_db),
 ):
     """
     Get passkey authentication options.
@@ -269,8 +273,8 @@ def passkey_authenticate_options(
     user_credentials = []
     user = None
 
-    if request.email:
-        user = user_crud.get_user_by_email(db, email=request.email)
+    if body.email:
+        user = user_crud.get_user_by_email(db, email=body.email)
         if user:
             user_credentials = user.passkey_credentials
 
@@ -297,8 +301,11 @@ def passkey_authenticate_options(
 
 
 @router.post("/authenticate/verify", response_model=PasskeyAuthVerifyResponse)
+@limiter.limit("10/minute")
 def passkey_authenticate_verify(
-    request: PasskeyAuthVerifyRequest, db: Session = Depends(deps.get_db)
+    request: Request,
+    body: PasskeyAuthVerifyRequest,
+    db: Session = Depends(deps.get_db),
 ):
     """
     Verify passkey authentication.
@@ -308,8 +315,8 @@ def passkey_authenticate_verify(
     credential_data = None
 
     # If email provided, look up user
-    if request.email:
-        user = user_crud.get_user_by_email(db, email=request.email)
+    if body.email:
+        user = user_crud.get_user_by_email(db, email=body.email)
         if not user or not user.passkey_credentials:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -318,16 +325,14 @@ def passkey_authenticate_verify(
 
         # Find matching credential
         for cred in user.passkey_credentials:
-            if cred["id"] == request.credential_id:
+            if cred["id"] == body.credential_id:
                 credential_data = cred
                 break
     else:
         # Search all users for credential - discoverable credentials flow
         # Create WebAuthn credential from request
         try:
-            auth_credential = AuthenticationCredential.model_validate(
-                request.credential
-            )
+            auth_credential = AuthenticationCredential.model_validate(body.credential)
             credential_id = base64.b64encode(auth_credential.id).decode("utf-8")
 
             users = user_crud.get_users_with_passkey(db, credential_id=credential_id)
@@ -363,7 +368,7 @@ def passkey_authenticate_verify(
         try:
             client_data = json.loads(
                 AuthenticationCredential.model_validate(
-                    request.credential
+                    body.credential
                 ).response.client_data_json.decode("utf-8")
             )
             claimed_b64url = client_data.get("challenge", "")
@@ -380,7 +385,7 @@ def passkey_authenticate_verify(
 
     # Create WebAuthn credential from request
     try:
-        auth_credential = AuthenticationCredential.model_validate(request.credential)
+        auth_credential = AuthenticationCredential.model_validate(body.credential)
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
