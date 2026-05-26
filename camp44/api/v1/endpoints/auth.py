@@ -11,7 +11,7 @@ from urllib.parse import urlparse
 import httpx
 import stripe
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.orm import Session
@@ -276,33 +276,20 @@ def login(
     logger.info(f"Authentication successful for {form_data.username}")
     token_pair = create_token_pair(db, user)
 
-    # Sanitize from_url to prevent open redirect / XSS
+    # SECURITY (Audit P1-7): redirect via HTTP 303, never by interpolating a
+    # URL into an HTML meta-refresh. _sanitize_redirect_url() already enforces
+    # the host allowlist; using RedirectResponse means even a sanitizer bypass
+    # becomes only an open-redirect, never HTML injection.
     from_url = _sanitize_redirect_url(from_url)
     if from_url:
         logger.info(f"Creating code-based redirect to {from_url}")
         code = _create_auth_code(token_pair)
         separator = "&" if "?" in from_url else "?"
         redirect_url = f"{from_url}{separator}code={code}"
-
-        html_content = f"""
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <title>Authentication Successful</title>
-            <meta http-equiv="refresh" content="0;url={redirect_url}">
-        </head>
-        <body>
-            <h2>Authentication Successful</h2>
-            <p>Redirecting to application...</p>
-        </body>
-        </html>
-        """
-
-        response = HTMLResponse(content=html_content)
         logger.info(
             f"Login successful for {form_data.username}, redirecting with auth code"
         )
-        return response
+        return RedirectResponse(url=redirect_url, status_code=303)
 
     logger.info(f"Returning token for {form_data.username} without redirect")
     return token_pair
