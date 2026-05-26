@@ -130,7 +130,7 @@ async def send_welcome_email(email: str, name: str, setup_url: str) -> bool:
                     "body": f"""
 Hi {name},
 
-Welcome to ScaleMate! Your account has been created and your 7-day free trial has started.
+Welcome to ScaleMate! Your account has been created and your 14-day free trial has started.
 
 To complete your account setup and log in, please set your password by clicking the link below:
 
