@@ -20,6 +20,7 @@ from camp44 import crud
 from camp44.api import deps
 from camp44.core.auth_tokens import create_token_pair
 from camp44.core.config import settings
+from camp44.core.rate_limit import limiter
 from camp44.core.security import get_password_hash
 from camp44.crud import refresh_token as rt_crud
 from camp44.models.token import Token
@@ -237,12 +238,13 @@ async def login_page(
 
 
 @router.post("/login", response_model=Token)
+@limiter.limit("10/minute")
 def login(
+    request: Request,
     db: Session = Depends(deps.get_db),
     form_data: OAuth2PasswordRequestForm = Depends(),
     from_url: str = Form(None),
     app_id: str = Form(None),
-    request: Request = None,
 ) -> Token:
     """Logs a user in."""
     logger.info(f"POST /login request for username={form_data.username}")
@@ -577,10 +579,12 @@ def get_setup_link(
 
 
 @router.post("/set-password", response_model=SetPasswordResponse)
+@limiter.limit("10/minute")
 def set_password(
+    request: Request,
     *,
     db: Session = Depends(deps.get_db),
-    request: SetPasswordRequest,
+    body: SetPasswordRequest,
 ) -> SetPasswordResponse:
     """
     Set password using a reset token.
@@ -588,7 +592,7 @@ def set_password(
     This is used after Stripe checkout to allow users to set their password.
     """
     # Find user by reset token
-    user = crud.user.get_by_password_reset_token(session=db, token=request.token)
+    user = crud.user.get_by_password_reset_token(session=db, token=body.token)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -607,7 +611,7 @@ def set_password(
         )
 
     # Update password, clear reset token, and activate user
-    user.hashed_password = get_password_hash(request.password)
+    user.hashed_password = get_password_hash(body.password)
     user.password_reset_token = None
     user.password_reset_expires = None
     user.is_active = True
@@ -625,17 +629,19 @@ class ForgotPasswordRequest(BaseModel):
 
 
 @router.post("/forgot-password")
+@limiter.limit("5/minute")
 def forgot_password(
+    request: Request,
     *,
     db: Session = Depends(deps.get_db),
-    request: ForgotPasswordRequest,
+    body: ForgotPasswordRequest,
 ):
     """
     Request a password reset email.
 
     Always returns 200 regardless of whether the email exists (prevents enumeration).
     """
-    user = crud.user.get_user_by_email(session=db, email=request.email)
+    user = crud.user.get_user_by_email(session=db, email=body.email)
     if user and user.is_active:
         reset_token = secrets.token_urlsafe(32)
         user.password_reset_token = hashlib.sha256(reset_token.encode()).hexdigest()
