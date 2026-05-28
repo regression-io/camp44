@@ -60,8 +60,18 @@ _ALLOWED_REDIRECT_HOSTS = {
     "app.scalemate.me",
     "gtm.scalemate.me",
     "scalemate.me",
-    "localhost",
 }
+
+# ``localhost`` / ``127.0.0.1`` are only acceptable redirect targets outside
+# production. Allowing them in prod would let a network-local attacker on
+# the victim's machine (loopback listener) capture the post-login auth code
+# via ``?from_url=http://localhost:9999/...``. P1-7 follow-up.
+_ALLOWED_REDIRECT_HOSTS_DEV = _ALLOWED_REDIRECT_HOSTS | {"localhost", "127.0.0.1"}
+
+
+def _is_dev_environment() -> bool:
+    """Whether we're in a test / dev context (TESTING=1 or sqlite DB)."""
+    return bool(settings.TESTING) or "sqlite" in (settings.DATABASE_URL or "").lower()
 
 
 def _sanitize_redirect_url(url: str | None) -> str | None:
@@ -70,9 +80,14 @@ def _sanitize_redirect_url(url: str | None) -> str | None:
         return None
     try:
         parsed = urlparse(url)
-        if parsed.hostname and parsed.hostname not in _ALLOWED_REDIRECT_HOSTS:
-            return None
         if parsed.scheme and parsed.scheme not in ("http", "https"):
+            return None
+        allowed = (
+            _ALLOWED_REDIRECT_HOSTS_DEV
+            if _is_dev_environment()
+            else _ALLOWED_REDIRECT_HOSTS
+        )
+        if parsed.hostname and parsed.hostname not in allowed:
             return None
         return url
     except Exception:

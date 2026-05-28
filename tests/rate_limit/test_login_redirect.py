@@ -42,3 +42,29 @@ def test_sanitize_rejects_html_injection_attempt():
 
     payload = 'https://attacker.com/x"><script>alert(1)</script>'
     assert _sanitize_redirect_url(payload) is None
+
+
+def test_localhost_allowed_in_dev_blocked_in_prod(monkeypatch):
+    """
+    Codex P1-7 follow-up: ``localhost`` is a dev-only allowed redirect.
+
+    A network-local attacker on the victim's machine could otherwise stand
+    up a loopback listener and capture the post-login auth code.
+    """
+    from camp44.api.v1.endpoints import auth
+    from camp44.api.v1.endpoints.auth import _sanitize_redirect_url
+
+    # Force dev mode regardless of how settings was loaded by other tests.
+    monkeypatch.setattr(auth, "_is_dev_environment", lambda: True)
+    assert _sanitize_redirect_url("http://localhost:5173/") == "http://localhost:5173/"
+    assert _sanitize_redirect_url("http://127.0.0.1:5173/") == "http://127.0.0.1:5173/"
+
+    # Simulate a prod environment.
+    monkeypatch.setattr(auth, "_is_dev_environment", lambda: False)
+    assert _sanitize_redirect_url("http://localhost:5173/") is None
+    assert _sanitize_redirect_url("http://127.0.0.1:5173/") is None
+    # Production allowlist still works.
+    assert (
+        _sanitize_redirect_url("https://app.scalemate.me/dashboard")
+        == "https://app.scalemate.me/dashboard"
+    )
