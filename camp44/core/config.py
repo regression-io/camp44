@@ -9,6 +9,23 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30
     ALGORITHM: str = "HS256"
     DATABASE_URL: str = "postgresql://camp44:camp44@localhost:5432/camp44"
+    # Connection-pool sizing + resilience (PostgreSQL only; ignored for sqlite).
+    # Raises the bare SQLAlchemy 5+10 default and makes a connection stranded
+    # mid-transaction self-heal instead of wedging the pool until a restart
+    # (stress-test finding F3). Per-worker — keep
+    # (DB_POOL_SIZE + DB_MAX_OVERFLOW) * uvicorn_workers under Postgres
+    # max_connections.
+    DB_POOL_SIZE: int = 10
+    DB_MAX_OVERFLOW: int = 10
+    DB_POOL_TIMEOUT: int = 10  # seconds to wait for a free connection
+    DB_POOL_RECYCLE: int = 1800  # recycle connections after 30 min
+    # Postgres server-side per-connection timeouts (milliseconds). The
+    # idle-in-transaction timeout is the F3 fix: Postgres kills a connection
+    # left mid-transaction so pool_pre_ping can recycle it. statement_timeout
+    # defaults off to avoid surprising long-running admin/report queries.
+    DB_IDLE_IN_TX_TIMEOUT_MS: int = 30000
+    DB_STATEMENT_TIMEOUT_MS: int = 0  # 0 = disabled
+    DB_CONNECT_TIMEOUT: int = 10  # seconds
     MINIO_URL: str = "localhost:9000"
     MINIO_ACCESS_KEY: str = "minio"
     MINIO_SECRET_KEY: str = "minio123"
