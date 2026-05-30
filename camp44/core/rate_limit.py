@@ -1,9 +1,13 @@
 """
 Rate limiting for auth surfaces.
 
-Uses slowapi with in-memory storage (single-replica deploys). The limiter is
-disabled when ``TESTING=1`` to avoid polluting the test suite; dedicated tests
-opt in by toggling ``app.state.limiter.enabled = True``.
+Storage: ``settings.REDIS_URL`` when set (shared across uvicorn workers /
+replicas so limits are correct under multiple workers), otherwise in-memory
+(per-process — fine for a single worker). ``swallow_errors`` makes the limiter
+**fail open** if the storage backend is unreachable (a Redis outage must not
+lock everyone out of auth). The limiter is disabled when ``TESTING=1`` to avoid
+polluting the test suite; dedicated tests opt in by toggling
+``app.state.limiter.enabled = True``.
 
 Keys are IP-only. Composite IP+email keys were considered but deferred — see
 ``scalemate-service/docs/bugs/P1-4/diagnosis.md``.
@@ -29,4 +33,6 @@ limiter = Limiter(
     key_func=get_remote_address,
     enabled=not settings.TESTING,
     headers_enabled=False,
+    storage_uri=settings.REDIS_URL or "memory://",
+    swallow_errors=True,
 )
