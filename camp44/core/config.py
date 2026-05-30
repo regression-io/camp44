@@ -34,6 +34,10 @@ class Settings(BaseSettings):
     )
     JWT_ALGORITHM: str = "HS256"
     RABBITMQ_URL: str = "amqp://guest:guest@localhost:5672/"
+    # Shared store for the rate limiter across uvicorn workers / replicas.
+    # Unset -> in-memory storage (per-process), fine for a single worker; set to
+    # redis://host:port to make limits correct under multiple workers.
+    REDIS_URL: Optional[str] = None
 
     # OAuth/OIDC settings
     OAUTH_ENABLED: bool = False
