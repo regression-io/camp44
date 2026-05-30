@@ -61,6 +61,12 @@ ignore = ["D100", "D104", "D105", "D107", "D203", "D212", "D415"]
 strict = true
 ignore_missing_imports = true
 
+[tool.uv]
+# Cap cbor2 to the 5.x line: 5.9.0 clears its CVEs (PYSEC-2025-90, CVE-2026-26209)
+# without the 6.x major bump, which would change the CBOR API the WebAuthn/passkey
+# attestation path relies on (not exercised by the local unit subset). See F5.
+constraint-dependencies = ["cbor2>=5.9.0,<6"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 ignore = ["tests_backup"]
